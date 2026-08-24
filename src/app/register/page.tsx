@@ -13,6 +13,7 @@ export default function RegisterPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -36,7 +37,10 @@ export default function RegisterPage() {
       email,
       password,
       options: {
-        data: { full_name: fullName },
+        data: {
+          full_name: fullName,
+          ...(dateOfBirth ? { date_of_birth: dateOfBirth } : {}),
+        },
         emailRedirectTo: `${window.location.origin}/verify`,
       },
     });
@@ -97,6 +101,22 @@ export default function RegisterPage() {
             placeholder="At least 8 characters"
             autoComplete="new-password"
           />
+        </label>
+        <label className="block">
+          <span className="block text-sm uppercase tracking-widest text-slate mb-1.5 font-medium">
+            Date of birth <span className="text-muted font-normal">(optional)</span>
+          </span>
+          <input
+            type="date"
+            value={dateOfBirth}
+            onChange={(e) => setDateOfBirth(e.target.value)}
+            className="field"
+            max={new Date().toISOString().split("T")[0]}
+            autoComplete="bday"
+          />
+          <p className="text-[12px] text-muted mt-1">
+            We&apos;ll wish you a happy birthday on your special day!
+          </p>
         </label>
 
         {error && (

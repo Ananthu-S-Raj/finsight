@@ -162,6 +162,9 @@ export default function QuickAddSheet({
       emitRefresh();
       onClose();
     } catch (err) {
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[QuickAdd submit]", err);
+      }
       setError(
         err instanceof Error
           ? err.message
@@ -218,7 +221,7 @@ export default function QuickAddSheet({
                 }
               }}
               placeholder="0"
-              className="field !py-4 pl-10 text-4xl font-semibold tabular tracking-tight"
+              className="field !py-4 pl-12 text-4xl font-semibold tabular tracking-tight"
               aria-label="Amount"
             />
           </div>
