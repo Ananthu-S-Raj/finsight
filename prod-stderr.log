@@ -1,0 +1,4 @@
+{"ts":"2026-08-24T07:30:23.682Z","level":"warn","component":"admin-auth","event":"missing_token","hasAuthHeader":false,"path":"/api/admin/whoami"}
+{"ts":"2026-08-24T07:30:23.683Z","level":"warn","component":"admin-auth","event":"access_denied","reason":"missing_token","ip":"::1","userAgent":"Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168","hasAuthHeader":false}
+{"ts":"2026-08-24T07:30:23.713Z","level":"warn","component":"admin-auth","event":"missing_token","hasAuthHeader":false,"path":"/api/admin/overview"}
+{"ts":"2026-08-24T07:30:23.713Z","level":"warn","component":"admin-auth","event":"access_denied","reason":"missing_token","ip":"::1","userAgent":"Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.9168","hasAuthHeader":false}
