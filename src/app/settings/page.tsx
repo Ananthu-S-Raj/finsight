@@ -17,6 +17,7 @@ import { currentPermission, isSubscribed, subscribeForPush, syncPushPrefs, unsub
 import { supabase } from "@/lib/supabaseClient";
 import { haptic } from "@/lib/haptics";
 import PasswordStrength from "@/components/PasswordStrength";
+import { setDateOfBirth } from "@/lib/finance";
 
 function SettingRow({
   icon,
@@ -52,7 +53,7 @@ type BeforeInstallPromptEvent = Event & {
 
 export default function SettingsPage() {
   const userId = useRequireAuth();
-  const { profile, loading } = usePageData(userId);
+  const { profile, loading, refresh } = usePageData(userId);
   const { settings, ready, patch, patchNotifications } = useSettings();
   const toast = useToast();
   const router = useRouter();
@@ -69,6 +70,11 @@ export default function SettingsPage() {
   const [changeBusy, setChangeBusy] = useState(false);
   const [changeError, setChangeError] = useState("");
   const [changeDone, setChangeDone] = useState(false);
+
+  const [dobValue, setDobValue] = useState("");
+  const [dobBusy, setDobBusy] = useState(false);
+  const [dobDone, setDobDone] = useState(false);
+  const [dobError, setDobError] = useState("");
 
   useEffect(() => {
     document.title = "Settings · FinSight";
@@ -106,6 +112,36 @@ export default function SettingsPage() {
     if (!ready || !userId || !settings.notifications.push) return;
     syncPushPrefs(userId, settings.notifications).catch(() => {});
   }, [ready, userId, settings.notifications, settings.notifications.push]);
+
+  // Initialise DOB field from the fetched profile.
+  useEffect(() => {
+    if (profile) setDobValue(profile.date_of_birth ?? "");
+  }, [profile]);
+
+  async function saveDob() {
+    if (!userId) return;
+    setDobError("");
+    setDobDone(false);
+    if (dobValue) {
+      const d = new Date(dobValue);
+      if (isNaN(d.getTime()) || d > new Date()) {
+        setDobError("Date of birth cannot be in the future.");
+        return;
+      }
+    }
+    setDobBusy(true);
+    try {
+      await setDateOfBirth(userId, dobValue || null);
+      await refresh(userId);
+      setDobDone(true);
+      haptic("success");
+      toast.success(dobValue ? "Date of birth saved." : "Date of birth cleared.");
+    } catch {
+      setDobError("Couldn't save that right now. Please try again.");
+    } finally {
+      setDobBusy(false);
+    }
+  }
 
   async function togglePush(on: boolean) {
     if (!userId) return;
@@ -264,6 +300,57 @@ export default function SettingsPage() {
               <SettingRow icon="shield" color="#6366f1" title="Reduce motion" hint="Minimize animations and transitions.">
                 <Toggle on={settings.reduceMotion} onChange={(v) => patch({ reduceMotion: v })} label="Reduce motion" />
               </SettingRow>
+            </div>
+          </GlassCard>
+
+          {/* Profile */}
+          <GlassCard hover>
+            <div className="px-5 pt-4 pb-1 flex items-center gap-2">
+              <Icon name="profile" color="#10b981" size={15} />
+              <h2 className="text-[13px] font-bold uppercase tracking-widest text-slate">Profile</h2>
+            </div>
+            <div className="border-t border-line">
+              <div className="px-5 py-4 space-y-3">
+                {dobDone && (
+                  <p className="text-sm flex items-center gap-2 text-[#10b981]">
+                    <Icon name="check" size={15} /> Date of birth updated.
+                  </p>
+                )}
+                {dobError && (
+                  <p className="text-sm flex items-start gap-2 text-danger">
+                    <Icon name="alert" size={15} className="mt-0.5 shrink-0" /> {dobError}
+                  </p>
+                )}
+                <label className="block">
+                  <span className="block text-sm text-slate mb-1">Date of birth</span>
+                  <input
+                    type="date"
+                    value={dobValue}
+                    onChange={(e) => {
+                      setDobValue(e.target.value);
+                      setDobDone(false);
+                      setDobError("");
+                    }}
+                    className="field"
+                    max={new Date().toISOString().split("T")[0]}
+                    autoComplete="bday"
+                  />
+                </label>
+                <Button
+                  variant="primary"
+                  full
+                  onClick={saveDob}
+                  disabled={dobBusy || dobValue === (profile?.date_of_birth ?? "")}
+                  icon={dobBusy ? undefined : "check"}
+                >
+                  {dobBusy ? "Saving…" : "Save date of birth"}
+                </Button>
+                <p className="text-[12px] leading-relaxed text-muted">
+                  {profile?.date_of_birth
+                    ? "Your birthday greeting will appear on your special day."
+                    : "Set your birthday to get a greeting on your special day."}
+                </p>
+              </div>
             </div>
           </GlassCard>
 

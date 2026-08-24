@@ -44,7 +44,10 @@ export const CATEGORY_PRESETS: Record<string, string[]> = {
  * client can no longer change protected columns (guarded in the database).
  */
 
-function rpcErrorMessage(err: { message?: string; code?: string }): Error {
+function rpcErrorMessage(err: { message?: string; code?: string; details?: string }): Error {
+  if (process.env.NODE_ENV !== "production") {
+    console.error("[FinSight RPC]", err);
+  }
   switch (err.message) {
     case "insufficient_balance":
       return new Error("Not enough in your salary balance to cover that amount.");
@@ -56,8 +59,10 @@ function rpcErrorMessage(err: { message?: string; code?: string }): Error {
       return new Error("That income type isn't supported.");
     case "category_invalid":
       return new Error("That category isn't available right now.");
-    default:
-      return new Error("FinSight couldn't save that right now.");
+    default: {
+      const hint = err.details ? ` (${err.details})` : "";
+      return new Error(`FinSight couldn't save that right now.${hint}`);
+    }
   }
 }
 
@@ -75,6 +80,14 @@ export async function setMonthlyBudget(userId: string, amount: number) {
   const { error } = await supabase
     .from("profiles")
     .update({ monthly_budget: amount })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+export async function setDateOfBirth(userId: string, dateOfBirth: string | null) {
+  const { error } = await supabase
+    .from("profiles")
+    .update({ date_of_birth: dateOfBirth })
     .eq("id", userId);
   if (error) throw error;
 }
