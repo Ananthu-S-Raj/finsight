@@ -225,6 +225,48 @@ describe("atomic financial RPC wiring (server computes balances)", () => {
     expect(res.overspendAmount).toBe(1234);
   });
 
+  it("recordSpend sends p_is_credit_card=true for a credit-card expense", async () => {
+    let args: unknown;
+    makeClient({
+      rpc: {
+        apply_expense: (a: unknown) => {
+          args = a;
+          return { data: { overspend_amount: 0 }, error: null };
+        },
+      },
+    });
+    await recordSpend(USER_A_ID, {
+      category: "Shopping",
+      subcategory: "Amazon",
+      amount: 1500,
+      isCreditCard: true,
+    });
+    expect(args).toMatchObject({
+      p_category: "Shopping",
+      p_subcategory: "Amazon",
+      p_amount: 1500,
+      p_is_credit_card: true,
+    });
+  });
+
+  it("recordSpend defaults p_is_credit_card to false for a normal expense", async () => {
+    let args: unknown;
+    makeClient({
+      rpc: {
+        apply_expense: (a: unknown) => {
+          args = a;
+          return { data: { overspend_amount: 0 }, error: null };
+        },
+      },
+    });
+    await recordSpend(USER_A_ID, {
+      category: "Food",
+      subcategory: "Restaurants",
+      amount: 200,
+    });
+    expect(args).toMatchObject({ p_is_credit_card: false });
+  });
+
   it("setMonthlyBudget writes to the user's own profile only", async () => {
     const client = makeClient({ tables: { profiles: [makeUser()] } });
     await setMonthlyBudget(USER_A_ID, 75000);
@@ -275,15 +317,27 @@ describe("atomic financial RPC wiring (server computes balances)", () => {
     );
   });
 
-  it("setDateOfBirth throws on Supabase error", async () => {
-    makeClient({
-      tables: { profiles: [makeUser()] },
-    });
-    // Force an error by using a client that rejects updates
-    const { setDateOfBirth: failingSetDOB } = await import("@/lib/finance");
-    // The mock client doesn't error on valid updates, so we test the happy path
-    // and verify the error path through the rpcErrorMessage pattern
-    await expect(failingSetDOB(USER_A_ID, "1995-06-15")).resolves.toBeUndefined();
+  it("setDateOfBirth throws when the profiles update fails", async () => {
+    const prevFrom = supabase.from;
+    // Simulate a genuine Supabase failure: the awaited `profiles` update
+    // rejects with an error (the real Supabase contract on a failed update).
+    supabase.from = (() => {
+      const failingQuery = {
+        update: () => failingQuery,
+        eq: () => failingQuery,
+        then: (_res: unknown, rej: (e: Error) => unknown) => {
+          rej(new Error("permission denied"));
+        },
+      };
+      return failingQuery;
+    }) as typeof supabase.from;
+    try {
+      await expect(setDateOfBirth(USER_A_ID, "1995-06-15")).rejects.toThrow(
+        "permission denied"
+      );
+    } finally {
+      supabase.from = prevFrom;
+    }
   });
 });
 
@@ -356,14 +410,17 @@ describe("getCategoryBreakdown — category analytics", () => {
 
 describe("getRecentMerchants", () => {
   it("deduplicates subcategories and respects the limit", async () => {
+    // getRecentMerchants returns newest-first (created_at desc). Give the two
+    // "Swiggy" rows the newest timestamps so dedup yields Swiggy, Zomato, Uber
+    // deterministically, independent of machine timing.
     makeClient({
       tables: {
         transactions: [
-          makeTransaction({ subcategory: "Swiggy" }),
-          makeTransaction({ subcategory: "Swiggy" }),
-          makeTransaction({ subcategory: "Zomato" }),
-          makeTransaction({ subcategory: "Uber" }),
-          makeTransaction({ subcategory: "Amazon" }),
+          makeTransaction({ subcategory: "Swiggy", created_at: "2026-08-05T00:00:00Z" }),
+          makeTransaction({ subcategory: "Swiggy", created_at: "2026-08-04T00:00:00Z" }),
+          makeTransaction({ subcategory: "Zomato", created_at: "2026-08-03T00:00:00Z" }),
+          makeTransaction({ subcategory: "Uber", created_at: "2026-08-02T00:00:00Z" }),
+          makeTransaction({ subcategory: "Amazon", created_at: "2026-08-01T00:00:00Z" }),
         ],
       },
     });
@@ -394,15 +451,31 @@ describe("IDOR — every data access is scoped to the requesting user", () => {
     expect(update!.payload).not.toHaveProperty("category_id");
   });
 
-  it("deleteTransaction filters by id and user_id", async () => {
-    const client = makeClient({ tables: { transactions: [makeTransaction()] } });
+  it("deleteTransaction calls the delete_transaction RPC with the transaction id", async () => {
+    let rpcArgs: unknown;
+    makeClient({
+      rpc: {
+        delete_transaction: (a: unknown) => {
+          rpcArgs = a;
+          return { data: null, error: null };
+        },
+      },
+    });
     await deleteTransaction(USER_A_ID, "tx-1");
-    const del = client.writes.find((w) => w.table === "transactions" && w.kind === "delete");
-    expect(del!.filters).toEqual(
-      expect.arrayContaining([
-        { col: "id", op: "eq", val: "tx-1" },
-        { col: "user_id", op: "eq", val: USER_A_ID },
-      ])
+    expect(rpcArgs).toEqual({ p_transaction_id: "tx-1" });
+  });
+
+  it("deleteTransaction surfaces transaction_not_found as a friendly error", async () => {
+    makeClient({
+      rpc: {
+        delete_transaction: () => ({
+          data: null,
+          error: { message: "transaction_not_found" },
+        }),
+      },
+    });
+    await expect(deleteTransaction(USER_A_ID, "nonexistent")).rejects.toThrow(
+      /don't have access/
     );
   });
 

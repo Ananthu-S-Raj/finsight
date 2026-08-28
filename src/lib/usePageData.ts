@@ -34,9 +34,11 @@ export function usePageData(userId: string | null, txnLimit = 50) {
   const refresh = useCallback(
     async (uid: string) => {
       try {
-        // Fetch profile and transactions in parallel; then compute the month
-        // summary using the profile's budget so getMonthSummary avoids a
-        // redundant getProfile round-trip.
+        // Fetch profile and transactions in parallel, then compute the month
+        // summary. The summary stays a dedicated database query: recent
+        // transactions are capped at txnLimit so they cannot reliably yield the
+        // full current-month total (removing the query would under-count for
+        // months with more than txnLimit expenses).
         const [p, t] = await Promise.all([
           getProfile(uid),
           getRecentTransactions(uid, txnLimit),

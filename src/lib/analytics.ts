@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import type { Profile, Transaction } from "./finance";
+import { rpcErrorMessage, type Profile, type Transaction } from "./finance";
 
 export type MonthBucket = {
   key: string;
@@ -130,13 +130,11 @@ export async function updateTransaction(
   if (error) throw error;
 }
 
-export async function deleteTransaction(userId: string, id: string) {
-  const { error } = await supabase
-    .from("transactions")
-    .delete()
-    .eq("id", id)
-    .eq("user_id", userId);
-  if (error) throw error;
+export async function deleteTransaction(_userId: string, id: string) {
+  const { error } = await supabase.rpc("delete_transaction", {
+    p_transaction_id: id,
+  });
+  if (error) throw rpcErrorMessage(error);
 }
 
 export async function duplicateTransaction(userId: string, tx: Transaction) {

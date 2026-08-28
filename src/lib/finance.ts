@@ -44,7 +44,7 @@ export const CATEGORY_PRESETS: Record<string, string[]> = {
  * client can no longer change protected columns (guarded in the database).
  */
 
-function rpcErrorMessage(err: { message?: string; code?: string; details?: string }): Error {
+export function rpcErrorMessage(err: { message?: string; code?: string; details?: string }): Error {
   if (process.env.NODE_ENV !== "production") {
     console.error("[FinSight RPC]", err);
   }
@@ -59,6 +59,8 @@ function rpcErrorMessage(err: { message?: string; code?: string; details?: strin
       return new Error("That income type isn't supported.");
     case "category_invalid":
       return new Error("That category isn't available right now.");
+    case "transaction_not_found":
+      return new Error("That transaction doesn't exist or you don't have access.");
     default: {
       const hint = err.details ? ` (${err.details})` : "";
       return new Error(`FinSight couldn't save that right now.${hint}`);

@@ -68,8 +68,9 @@ export default function TransactionDetailSheet({ tx, onClose, userId }: Props) {
   const color = isSpend ? "#ef4444" : "#10b981";
 
   async function runAction(id: string) {
-    if (!tx) return;
+    if (!tx || busy) return;
     if (id === "duplicate") {
+      setBusy(true);
       try {
         await duplicateTransaction(userId, tx);
         haptic("success");
@@ -78,8 +79,11 @@ export default function TransactionDetailSheet({ tx, onClose, userId }: Props) {
         onClose();
       } catch {
         toast.error("Couldn't duplicate that entry.");
+      } finally {
+        setBusy(false);
       }
     } else if (id === "delete") {
+      setBusy(true);
       try {
         await deleteTransaction(userId, tx.id);
         haptic("success");
@@ -88,6 +92,8 @@ export default function TransactionDetailSheet({ tx, onClose, userId }: Props) {
         onClose();
       } catch {
         toast.error("Couldn't delete that entry.");
+      } finally {
+        setBusy(false);
       }
     } else if (id === "edit" || id === "categorize") {
       setEditing(true);
@@ -233,9 +239,10 @@ export default function TransactionDetailSheet({ tx, onClose, userId }: Props) {
                 variant={a.danger ? "danger" : "default"}
                 icon={a.icon}
                 onClick={() => runAction(a.id)}
+                disabled={busy}
                 className={a.danger ? "!col-span-2" : ""}
               >
-                {a.label}
+                {busy && a.id === "delete" ? "Deleting…" : a.label}
               </Button>
             ))}
           </div>

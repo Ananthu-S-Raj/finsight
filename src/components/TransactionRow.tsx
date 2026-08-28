@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { Transaction } from "@/lib/finance";
 import Icon, { type IconName } from "./ui/Icons";
 import { dayLabel, inr } from "@/lib/format";
@@ -70,7 +70,7 @@ export function txSubtitle(tx: Transaction): string {
   return parts.join(" · ");
 }
 
-export default function TransactionRow({
+export default memo(function TransactionRow({
   tx,
   onOpen,
   compact = false,
@@ -120,4 +120,4 @@ export default function TransactionRow({
       )}
     </button>
   );
-}
+});

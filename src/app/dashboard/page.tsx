@@ -147,10 +147,21 @@ export default function DashboardPage() {
   const budgetPct =
     summary.budget > 0 ? Math.min(100, (summary.spent / summary.budget) * 100) : 0;
 
+  // Stable reference for AppShell so it doesn't re-render on every dashboard
+  // state change; AppShell only needs the identity fields AppShell actually
+  // uses (full name, email, role).
+  const shellProfile = useMemo(
+    () =>
+      profile
+        ? { full_name: profile.full_name, email: profile.email, role: profile.role }
+        : null,
+    [profile]
+  );
+
   return (
     <AppShell
       userId={userId ?? ""}
-      profile={profile ? { full_name: profile.full_name, email: profile.email, role: profile.role } : null}
+      profile={shellProfile}
     >
       {showLoading ? (
         <div className="space-y-5 animate-fade-in">
