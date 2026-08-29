@@ -267,6 +267,33 @@ describe("atomic financial RPC wiring (server computes balances)", () => {
     expect(args).toMatchObject({ p_is_credit_card: false });
   });
 
+  it("card spends always call the single apply_expense RPC with p_is_credit_card=true (never a separate salary path)", async () => {
+    // Lock the contract behind the credit-card fix: a card charge is recorded
+    // via the same RPC with p_is_credit_card=true, and the returned overspend
+    // is passed through. This line ensures the client can never accidentally
+    // route a card charge through the salary balance.
+    let args: unknown;
+    makeClient({
+      rpc: {
+        apply_expense: (a: unknown) => {
+          args = a;
+          return { data: { overspend_amount: 0 }, error: null };
+        },
+      },
+    });
+    await recordSpend(USER_A_ID, {
+      category: "Shopping",
+      subcategory: "Amazon",
+      amount: 7000,
+      isCreditCard: true,
+    });
+    expect(args).toMatchObject({
+      p_category: "Shopping",
+      p_amount: 7000,
+      p_is_credit_card: true,
+    });
+  });
+
   it("setMonthlyBudget writes to the user's own profile only", async () => {
     const client = makeClient({ tables: { profiles: [makeUser()] } });
     await setMonthlyBudget(USER_A_ID, 75000);
@@ -477,6 +504,28 @@ describe("IDOR — every data access is scoped to the requesting user", () => {
     await expect(deleteTransaction(USER_A_ID, "nonexistent")).rejects.toThrow(
       /don't have access/
     );
+  });
+
+  it("deleting a credit-card charge routes through the delete_transaction RPC (no silent client-side delete, no salary refund)", async () => {
+    // Regression: card charges store overspend_amount=0 on create, so deleting
+    // them must still go through the RPC (which reverse-applies the stored
+    // row) rather than a raw client delete — preserving create/delete symmetry.
+    let rpcArgs: unknown;
+    let client = makeClient({
+      tables: { transactions: [makeCreditCardTx({ id: "card-tx", amount: 3500 })] },
+      rpc: {
+        delete_transaction: (a: unknown) => {
+          rpcArgs = a;
+          return { data: null, error: null };
+        },
+      },
+    });
+    await deleteTransaction(USER_A_ID, "card-tx");
+    expect(rpcArgs).toEqual({ p_transaction_id: "card-tx" });
+    const rawDeletes = client.writes.filter(
+      (w) => w.table === "transactions" && w.kind === "delete"
+    );
+    expect(rawDeletes).toHaveLength(0);
   });
 
   it("getRecentTransactions and analytics queries are user-scoped", async () => {

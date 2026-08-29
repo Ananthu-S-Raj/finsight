@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
 import InstallAppPrompt from "@/components/InstallAppPrompt";
+import UpdatePrompt from "@/components/UpdatePrompt";
 import StartupSplash from "@/components/StartupSplash";
 import { ToastProvider } from "@/components/ui/ToastProvider";
 import { QuickAddProvider } from "@/components/QuickAddContext";
@@ -93,6 +94,7 @@ export default function RootLayout({
             <QuickAddProvider>
               {children}
               <InstallAppPrompt />
+              <UpdatePrompt />
             </QuickAddProvider>
           </ToastProvider>
         </ThemeProvider>

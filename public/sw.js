@@ -17,6 +17,17 @@ self.addEventListener("activate", (event) => {
       .keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
+      .then(() =>
+        self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+          for (const client of clients) {
+            try {
+              client.postMessage({ type: "finsight-version", version: CACHE });
+            } catch {
+              // client not ready — best-effort
+            }
+          }
+        })
+      )
   );
 });
 

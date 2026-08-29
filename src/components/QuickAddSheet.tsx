@@ -289,13 +289,13 @@ export default function QuickAddSheet({
                 }}
                 className="sr-only peer"
               />
+              {/* The label forwards clicks to the checkbox, which is the single
+                  source of truth for the toggle state. No separate onClick on
+                  the visual switch: a second handler caused a double-toggle
+                  (span + label → checkbox), making the state unreliable. */}
               <span
                 className={`switch ${isCreditCard ? "" : ""}`}
                 data-on={isCreditCard}
-                onClick={() => {
-                  setIsCreditCard(!isCreditCard);
-                  haptic("toggle");
-                }}
                 role="switch"
                 aria-checked={isCreditCard}
               />
