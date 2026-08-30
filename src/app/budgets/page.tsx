@@ -161,7 +161,7 @@ export default function BudgetsPage() {
                 onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
                 onKeyDown={(e) => e.key === "Enter" && saveBudget()}
                 placeholder="0"
-                className="field !py-4 pl-10 text-4xl font-semibold tabular"
+                className="field !py-4 !pl-14 text-4xl font-semibold tabular"
                 aria-label="Monthly budget"
               />
             </div>

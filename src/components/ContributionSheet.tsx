@@ -107,7 +107,7 @@ export default function ContributionSheet({
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
               placeholder="0"
-              className="field pl-10 text-2xl font-semibold tabular tracking-tight"
+              className="field !pl-11 text-2xl font-semibold tabular tracking-tight"
               aria-label="Contribution amount"
             />
           </div>

@@ -189,7 +189,7 @@ export default function GoalFormSheet({
                 value={targetAmount}
                 onChange={(e) => setTargetAmount(e.target.value.replace(/[^0-9.]/g, ""))}
                 placeholder="0"
-                className="field pl-10 text-xl font-semibold tabular tracking-tight"
+                className="field !pl-11 text-xl font-semibold tabular tracking-tight"
                 aria-label="Target amount"
               />
             </div>
@@ -218,7 +218,7 @@ export default function GoalFormSheet({
                 value={currentAmount}
                 onChange={(e) => setCurrentAmount(e.target.value.replace(/[^0-9.]/g, ""))}
                 placeholder="0"
-                className="field pl-10 text-xl font-semibold tabular tracking-tight"
+                className="field !pl-11 text-xl font-semibold tabular tracking-tight"
                 aria-label="Already saved"
               />
             </div>

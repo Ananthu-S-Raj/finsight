@@ -246,7 +246,7 @@ export default function QuickAddSheet({
                 }
               }}
               placeholder="0"
-              className="field !py-4 pl-12 text-4xl font-semibold tabular tracking-tight"
+              className="field !py-4 !pl-14 text-4xl font-semibold tabular tracking-tight"
               aria-label="Amount"
             />
           </div>
