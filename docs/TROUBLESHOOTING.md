@@ -44,9 +44,14 @@ npm run build
 **Checklist**:
 1. VAPID keys are configured (`NEXT_PUBLIC_VAPID_PUBLIC_KEY` in env, private key in Supabase secrets)
 2. Browser notification permission is granted
-3. Push subscription was registered (check Supabase `push_subscriptions` table)
-4. Service worker is active (DevTools → Application → Service Workers)
-5. Supabase Edge Function `send-push` is deployed and configured
+3. The `push_subscriptions` migration has been applied (`supabase db push`) and the table has the `prefs` column
+4. Push subscription was registered (check Supabase `push_subscriptions` table)
+5. Service worker is active (DevTools → Application → Service Workers)
+6. Supabase Edge Functions `test-notification` / `daily-reminder` / `bill-reminder` / `process-recurring` are deployed and their `VAPID_*` secrets match the client public key
+
+If the Settings toggle turns OFF after enabling, the app now reports the exact
+reason (blocked permission, pending prompt, missing/misconfigured VAPID,
+unable to register the service worker, unable to save the subscription).
 
 ### Admin console shows "Access Denied"
 

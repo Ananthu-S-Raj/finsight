@@ -13,6 +13,33 @@ export function currentPermission(): PushPermission {
   return Notification.permission as PushPermission;
 }
 
+/**
+ * How long to wait for the service worker to become active before giving up.
+ * `navigator.serviceWorker.ready` never rejects — if the worker registration
+ * is missing or stuck installing it would otherwise hang the settings UI on an
+ * eternal "Enabling…" spinner. A bounded wait lets the UI report a real,
+ * actionable failure instead.
+ */
+export const SW_READY_TIMEOUT_MS = 5000;
+
+const SW_READY_TIMEOUT_ERR = "finsight:sw-not-ready";
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(SW_READY_TIMEOUT_ERR)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 export function supportsPush(): boolean {
   if (typeof window === "undefined") return false;
   return (
@@ -53,6 +80,18 @@ export function isValidVapidKey(key: string | undefined): boolean {
   }
 }
 
+export type VapidIssue = "ok" | "missing" | "invalid";
+
+/**
+ * Classifies the configured VAPID public key so the UI can explain WHY push
+ * cannot be enabled instead of showing a generic failure.
+ */
+export function getVapidIssue(): VapidIssue {
+  const key = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  if (!key) return "missing";
+  return isValidVapidKey(key) ? "ok" : "invalid";
+}
+
 /** Lists this device's stored subscription (by endpoint). */
 export async function getStoredSubscriptions(userId: string) {
   const { data, error } = await supabase
@@ -76,32 +115,41 @@ export async function subscribeForPush(
 
   const permission = await Notification.requestPermission();
   if (permission !== "granted") {
-    return { ok: false, reason: permission };
+    // "denied" is a hard block; "default" means the prompt was dismissed /
+    // not decided yet. Keep them distinct so the UI can say the right thing.
+    return { ok: false, reason: permission === "denied" ? "denied" : "default" };
   }
 
-  const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  if (!vapidKey) {
+  const vapidIssue = getVapidIssue();
+  if (vapidIssue === "missing") {
     return { ok: false, reason: "missing-vapid" };
   }
-  if (!isValidVapidKey(vapidKey)) {
+  if (vapidIssue === "invalid") {
     return { ok: false, reason: "invalid-vapid" };
   }
+  const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY as string;
 
   try {
-    const registration = await navigator.serviceWorker.ready;
+    // Await the active worker with a bound — `ready` never rejects, so without
+    // a timeout a failed/never-completing registration would hang the UI.
+    const registration = await withTimeout(
+      navigator.serviceWorker.ready,
+      SW_READY_TIMEOUT_MS
+    );
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(vapidKey),
     });
 
-    // Avoid duplicates — remove any existing subscription for the same endpoint.
-    const existing = await getStoredSubscriptions(userId);
+    // Already registered for this endpoint? Nothing more to persist.
     const endpoint = subscription.endpoint;
-    for (const row of existing) {
-      const raw = (row.subscription as { endpoint?: string } | null)?.endpoint;
-      if (raw === endpoint) {
-        return { ok: true };
-      }
+    const existing = await getStoredSubscriptions(userId);
+    if (
+      existing.some(
+        (row) => (row.subscription as { endpoint?: string } | null)?.endpoint === endpoint
+      )
+    ) {
+      return { ok: true };
     }
 
     const { error } = await supabase.from("push_subscriptions").insert({
@@ -109,9 +157,29 @@ export async function subscribeForPush(
       subscription: subscription.toJSON(),
       prefs: readSettings().notifications,
     });
-    if (error) throw error;
+    if (error) {
+      // A unique-endpoint violation (23505) surfaces when the browser still
+      // holds a subscription whose server row was removed (e.g. cleaned up
+      // after 410) or two tabs raced. The endpoint already being stored IS a
+      // successful registration — re-check before reporting failure.
+      if (error.code === "23505" || /duplicate key/i.test(error.message ?? "")) {
+        const refetch = await getStoredSubscriptions(userId).catch(() => []);
+        if (
+          refetch.some(
+            (row) => (row.subscription as { endpoint?: string } | null)?.endpoint === endpoint
+          )
+        ) {
+          return { ok: true };
+        }
+      }
+      // Persisting the browser subscription failed — do NOT claim success.
+      return { ok: false, reason: "save-failed" };
+    }
     return { ok: true };
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message === SW_READY_TIMEOUT_ERR) {
+      return { ok: false, reason: "no-worker" };
+    }
     return { ok: false, reason: "error" };
   }
 }
@@ -137,7 +205,10 @@ export async function syncPushPrefs(userId: string, prefs: NotificationPrefs) {
 export async function unsubscribeFromPush(userId: string) {
   let endpoint: string | null = null;
   try {
-    const reg = await navigator.serviceWorker.ready;
+    const reg = await withTimeout(
+      navigator.serviceWorker.ready,
+      SW_READY_TIMEOUT_MS
+    );
     const sub = await reg.pushManager.getSubscription();
     endpoint = sub?.endpoint ?? null;
     await sub?.unsubscribe();
@@ -168,7 +239,10 @@ export async function unsubscribeFromPush(userId: string) {
 export async function isSubscribed(userId: string): Promise<boolean> {
   try {
     if (!supportsPush()) return false;
-    const reg = await navigator.serviceWorker.ready;
+    const reg = await withTimeout(
+      navigator.serviceWorker.ready,
+      SW_READY_TIMEOUT_MS
+    );
     const sub = await reg.pushManager.getSubscription();
     if (!sub) return false;
     const rows = await getStoredSubscriptions(userId);
@@ -178,6 +252,70 @@ export async function isSubscribed(userId: string): Promise<boolean> {
     );
   } catch {
     return false;
+  }
+}
+
+export type SendTestResult = {
+  ok: boolean;
+  sent: number;
+  reason?: "unsupported" | "permission" | "not-subscribed" | "not-configured" | "unauthenticated" | "missing-vapid" | "error";
+};
+
+/**
+ * Resolves the Supabase Edge Function URL (e.g. .../functions/v1/<name>).
+ * Edge functions live on the project's `.functions.supabase.co` host; custom
+ * domains do not expose a functions sub-host, so this returns null there.
+ */
+function edgeFunctionUrl(name: string): string | null {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!base) return null;
+  try {
+    const host = new URL(base).host;
+    if (!host.endsWith(".supabase.co")) return null;
+    return `https://${host.replace(/\.supabase\.co$/, ".functions.supabase.co")}/${name}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Delivers an instant test push via the `test-notification` Edge Function.
+ * The function verifies the caller's JWT and only ever sends to that user's own
+ * subscriptions — this just wires the authenticated request through.
+ */
+export async function sendTestNotification(userId: string): Promise<SendTestResult> {
+  if (!supportsPush()) return { ok: false, sent: 0, reason: "unsupported" };
+  if (currentPermission() !== "granted") return { ok: false, sent: 0, reason: "permission" };
+  if (!(await isSubscribed(userId))) return { ok: false, sent: 0, reason: "not-subscribed" };
+
+  const url = edgeFunctionUrl("test-notification");
+  if (!url) return { ok: false, sent: 0, reason: "not-configured" };
+
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return { ok: false, sent: 0, reason: "unauthenticated" };
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({}),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      sent?: number;
+      removed?: number;
+      error?: string;
+    };
+    if (!res.ok) {
+      return {
+        ok: false,
+        sent: 0,
+        reason: body.error === "vapid_not_configured" ? "missing-vapid" : "error",
+      };
+    }
+    return { ok: true, sent: body.sent ?? 0 };
+  } catch {
+    return { ok: false, sent: 0, reason: "error" };
   }
 }
 

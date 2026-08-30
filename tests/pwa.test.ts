@@ -103,19 +103,49 @@ describe("service worker registration surface", () => {
 
 describe("service worker install / activate", () => {
   it("pre-caches the core URLs and skips waiting", async () => {
-    const { fire, caches } = loadSW();
+    const { fire, caches, self } = loadSW();
     await fire("install");
     expect(caches.api.open).toHaveBeenCalledWith(CACHE);
     const handle = await caches.api.open.mock.results[0].value;
     expect(handle.addAll).toHaveBeenCalledWith(CORE_URLS);
+    // The new worker must take over immediately — without skipWaiting the old
+    // shell would keep serving until every tab closed.
+    expect(self.skipWaiting).toHaveBeenCalled();
   });
 
   it("purges stale caches on activate and claims clients", async () => {
-    const { fire, caches } = loadSW();
+    const claim = vi.fn();
+    const { fire, caches } = loadSW({
+      self: { clients: { claim, matchAll: vi.fn(async () => []) } },
+    });
     await fire("activate");
     expect(caches.api.keys).toHaveBeenCalled();
     expect(caches.api.delete).toHaveBeenCalledWith("finsight-old");
     expect(caches.api.delete).not.toHaveBeenCalledWith(CACHE);
+    // Take control of open tabs so the current version lives everywhere.
+    expect(claim).toHaveBeenCalled();
+  });
+
+  it("announces the activated version to every open client (auto-update notice)", async () => {
+    const clients = [
+      { postMessage: vi.fn() },
+      { postMessage: vi.fn() },
+    ];
+    const { fire, self } = loadSW({
+      self: {
+        clients: { claim: vi.fn(), matchAll: vi.fn(async () => clients) },
+      },
+    });
+    await fire("activate");
+    // The UpdatePrompt listens for this type on the window: `client` here is a
+    // window, so each must receive a { type: "finsight-version" } handshake so
+    // it can show the "Updated" notice without a second heavy reload.
+    for (const client of clients) {
+      expect(client.postMessage).toHaveBeenCalledWith({
+        type: "finsight-version",
+        version: CACHE,
+      });
+    }
   });
 });
 

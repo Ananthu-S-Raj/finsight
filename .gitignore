@@ -13,3 +13,4 @@ dev-*.log
 tsconfig.tsbuildinfo
 supabase/.temp/
 prod-*.log
+supabase/.temp/

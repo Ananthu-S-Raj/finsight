@@ -6,6 +6,7 @@ import Button from "./ui/Button";
 import { useToast } from "./ui/ToastProvider";
 import {
   currentPermission,
+  getVapidIssue,
   isSubscribed,
   subscribeForPush,
   type PushPermission,
@@ -48,19 +49,39 @@ export default function NotificationPermissionCard({ userId }: { userId: string 
         setPermission("denied");
         patchNotifications({ push: false });
         toast.info("Notifications are blocked. Enable them in your browser site settings.");
+      } else if (result.reason === "default") {
+        // Prompt dismissed / not decided yet — keep the pref OFF.
+        patchNotifications({ push: false });
+        toast.info("Notifications are pending — tap “Enable” and choose Allow in the prompt.");
       } else if (result.reason === "missing-vapid") {
-        patchNotifications({ push: true });
-        toast.info("Permission granted — push will activate once VAPID keys are configured.");
+        // Permission was granted, but the app has no VAPID public key to
+        // subscribe with. Keep the pref OFF — nothing is registered yet.
+        patchNotifications({ push: false });
+        toast.info("Push notifications are not configured on this deployment yet.");
+      } else if (result.reason === "invalid-vapid") {
+        patchNotifications({ push: false });
+        toast.warning("Push is misconfigured (invalid VAPID key). Please contact support.");
+      } else if (result.reason === "no-worker") {
+        // A push subscription needs an active service worker; if it wasn't
+        // ready in time, the app service worker is still initialising.
+        patchNotifications({ push: false });
+        toast.info("Unable to register the notification service — reload the app and try again.");
+      } else if (result.reason === "save-failed") {
+        patchNotifications({ push: false });
+        toast.warning("Unable to save your notification subscription. Please try again.");
       } else if (result.reason === "unsupported") {
         patchNotifications({ push: false });
         toast.info("This browser doesn't support notifications.");
       } else {
+        patchNotifications({ push: false });
         toast.warning("Couldn't enable notifications right now.");
       }
     } finally {
       setBusy(false);
     }
   }
+
+  const vapidReady = getVapidIssue() === "ok";
 
   if (pushEnabled) return null;
 
@@ -86,6 +107,14 @@ export default function NotificationPermissionCard({ userId }: { userId: string 
           </div>
         ))}
       </div>
+
+      {!vapidReady && permission !== "denied" && (
+        <p className="mt-4 text-sm text-warn flex items-start gap-2">
+          <Icon name="alert" size={15} className="mt-0.5 shrink-0" />
+          Push can&apos;t be activated yet — the app isn&apos;t configured with a valid
+          VAPID key.
+        </p>
+      )}
 
       {permission === "denied" ? (
         <p className="mt-4 text-sm text-warn flex items-start gap-2">

@@ -127,6 +127,11 @@ export default function DashboardPage() {
     for (const t of txns) {
       const at = new Date(t.created_at);
       if (at.getTime() < start.getTime()) continue;
+      if (t.type === "credit_card_payment") {
+        // A card payment reduces a balance but is neither monthly spending
+        // nor income, so it must not skew either bucket.
+        continue;
+      }
       if (t.type === "expense" || t.type === "credit_card" || t.type === "savings_move") {
         expenses += Number(t.amount);
       } else {

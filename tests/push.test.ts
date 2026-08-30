@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, vi } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
 const eq = vi.fn(() => ({ data: [], error: null }));
 const update = vi.fn(() => ({ eq }));
@@ -6,7 +6,7 @@ const from = vi.fn(() => ({ update, eq }));
 
 vi.mock("@/lib/supabaseClient", () => ({ supabase: { from } }));
 
-const { currentPermission, supportsPush, syncPushPrefs, isValidVapidKey } = await import("@/lib/push");
+const { currentPermission, supportsPush, syncPushPrefs, isValidVapidKey, getVapidIssue } = await import("@/lib/push");
 
 describe("push guards", () => {
   beforeEach(() => {
@@ -45,6 +45,32 @@ describe("isValidVapidKey", () => {
 
   it("accepts a real 65-byte URL-safe base64 key", () => {
     expect(isValidVapidKey(valid65Byte)).toBe(true);
+  });
+});
+
+describe("getVapidIssue", () => {
+  const prev = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+  afterEach(() => {
+    if (prev === undefined) delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    else process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = prev;
+  });
+
+  it("classifies a missing key", () => {
+    delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    expect(getVapidIssue()).toBe("missing");
+  });
+
+  it("classifies the placeholder/malformed key as invalid", () => {
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = "generated-vapid-public-key";
+    expect(getVapidIssue()).toBe("invalid");
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = "A".repeat(10);
+    expect(getVapidIssue()).toBe("invalid");
+  });
+
+  it("classifies a real key as ok", () => {
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = "A".repeat(87);
+    expect(getVapidIssue()).toBe("ok");
   });
 });
 

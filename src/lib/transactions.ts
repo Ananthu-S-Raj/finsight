@@ -12,7 +12,8 @@ export type TransactionType =
   | "salary_add"
   | "savings_add"
   | "savings_move"
-  | "loan_add";
+  | "loan_add"
+  | "credit_card_payment";
 
 export const TRANSACTION_TYPE_ORDER: TransactionType[] = [
   "expense",
@@ -21,6 +22,7 @@ export const TRANSACTION_TYPE_ORDER: TransactionType[] = [
   "savings_add",
   "savings_move",
   "loan_add",
+  "credit_card_payment",
 ];
 
 export const TRANSACTION_TYPE_LABEL: Record<TransactionType, string> = {
@@ -30,6 +32,7 @@ export const TRANSACTION_TYPE_LABEL: Record<TransactionType, string> = {
   savings_add: "Savings added",
   savings_move: "Moved to savings",
   loan_add: "Loan added",
+  credit_card_payment: "Card payment",
 };
 
 /** Wire shape of a transaction as returned by /api/v1/transactions. */

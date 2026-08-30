@@ -200,7 +200,7 @@ export default function BillFormSheet({
         <div>
           <p className="field-label">Amount</p>
           <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-semibold text-slate" aria-hidden="true">
+            <span className="pointer-events-none select-none absolute left-4 top-1/2 -translate-y-1/2 w-6 text-center text-lg font-semibold text-slate" aria-hidden="true">
               ₹
             </span>
             <input
@@ -208,7 +208,7 @@ export default function BillFormSheet({
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
               placeholder="0"
-              className="field !pl-11 text-2xl font-semibold tabular tracking-tight"
+              className="field !pl-12 text-2xl font-semibold tabular tracking-tight"
               aria-label="Amount"
             />
           </div>

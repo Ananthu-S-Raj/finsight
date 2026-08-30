@@ -87,6 +87,25 @@ describe("StartupSplash — only appears on first load of a tab session (Bug 4)"
     expect(screen.queryByTestId("startup-splash")).not.toBeInTheDocument();
   });
 
+  it("does NOT replay the splash on a full page reload in the same tab (the reported 'every navigation' flash)", () => {
+    // A full page load (manual reload, plain <a> navigation, PWA update
+    // reload) remounts the root layout — previously the splash was baked into
+    // the server HTML and flashed again for returning users. The decision must
+    // be client-side and session-aware, so a reload in the same session shows
+    // nothing.
+    render(<StartupSplash />);
+    expect(screen.getByTestId("startup-splash")).toBeInTheDocument();
+    cleanup();
+
+    render(<StartupSplash />);
+    expect(screen.queryByTestId("startup-splash")).not.toBeInTheDocument();
+    cleanup();
+
+    // Even after the tabs' timers would have had time to run, still nothing.
+    render(<StartupSplash />);
+    expect(screen.queryByTestId("startup-splash")).not.toBeInTheDocument();
+  });
+
   it("shows again in a brand-new session (fresh tab)", () => {
     // A navigation remount marks the splash as shown for this session...
     render(<StartupSplash />);
@@ -97,5 +116,19 @@ describe("StartupSplash — only appears on first load of a tab session (Bug 4)"
     sessionStorage.clear();
     render(<StartupSplash />);
     expect(screen.getByTestId("startup-splash")).toBeInTheDocument();
+  });
+
+  it("emits NO splash markup and no timers for an already-shown session (no hydration flash)", () => {
+    // Seed the session flag before mounting, exactly like a reload of a tab
+    // that already saw the splash. The component must never render the splash
+    // and must not schedule any fade/cap timers for it.
+    sessionStorage.setItem("finsight:startup-splash-shown", "1");
+    render(<StartupSplash />);
+    expect(screen.queryByTestId("startup-splash")).not.toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(900);
+    });
+    expect(screen.queryByTestId("startup-splash")).not.toBeInTheDocument();
   });
 });

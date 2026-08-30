@@ -22,6 +22,7 @@ import {
   addLoan,
   moveToSavings,
   recordSpend,
+  payCreditCard,
   setMonthlyBudget,
   setDateOfBirth,
 } from "@/lib/finance";
@@ -189,6 +190,45 @@ describe("atomic financial RPC wiring (server computes balances)", () => {
     expect(kinds).toEqual(["savings", "loan"]);
   });
 
+  it("addSavingsDirect always routes through apply_income(savings) — never salary or expense paths", async () => {
+    // Bug 3 regression: setting an initial custom savings amount must (a) reach
+    // the atomic SECURITY DEFINER RPC (so the server computes balances under
+    // auth.uid() isolation), and (b) never touch the salary/expense layer.
+    const rpcNames: string[] = [];
+    let savingsArgs: unknown;
+    makeClient({
+      rpc: {
+        apply_income: (a: unknown) => {
+          rpcNames.push("apply_income");
+          savingsArgs = a;
+          return { data: null, error: null };
+        },
+        apply_expense: () => {
+          rpcNames.push("apply_expense");
+          return { data: null, error: null };
+        },
+        apply_savings_move: () => {
+          rpcNames.push("apply_savings_move");
+          return { data: null, error: null };
+        },
+      },
+    });
+    await addSavingsDirect(USER_A_ID, 2500, "initial savings");
+    expect(rpcNames).toEqual(["apply_income"]);
+    expect(savingsArgs).toEqual({ p_kind: "savings", p_amount: 2500, p_note: "initial savings" });
+  });
+
+  it("addSavingsDirect surfaces invalid amount rejections from the RPC", async () => {
+    makeClient({
+      rpc: {
+        apply_income: () => ({ data: null, error: { message: "invalid_amount" } }),
+      },
+    });
+    await expect(addSavingsDirect(USER_A_ID, 0)).rejects.toThrow(
+      /Amount must be greater than zero/
+    );
+  });
+
   it("moveToSavings surfaces insufficient_balance as a friendly error", async () => {
     makeClient({
       rpc: {
@@ -209,6 +249,51 @@ describe("atomic financial RPC wiring (server computes balances)", () => {
     await expect(
       recordSpend(USER_A_ID, { category: "Food", subcategory: "Restaurants", amount: 0 })
     ).rejects.toThrow(/Amount must be greater than zero/);
+  });
+
+  it("recordSpend surfaces the server's insufficient_balance guard for genuinely-over-budget cash expenses", async () => {
+    // The database applies the salary-balance check ONLY to the real overspend
+    // (amount past a configured budget). That guard still exists and must be
+    // reported clearly — this test locks the client mapping so a rejected
+    // expense can never be silently swallowed.
+    makeClient({
+      rpc: {
+        apply_expense: () => ({ data: null, error: { message: "insufficient_balance" } }),
+      },
+    });
+    await expect(
+      recordSpend(USER_A_ID, { category: "Food", subcategory: "Restaurants", amount: 25000 })
+    ).rejects.toThrow(/Not enough in your salary balance to cover that amount/);
+  });
+
+  it("recordSpend passes a normal (non-credit-card) expense through without any client-side salary guard", async () => {
+    // Bug 1 regression: a normal expense must reach the RPC untouched — the
+    // client must NOT pre-emptively reject it based on a local salary_balance
+    // read. Whether it is allowed is decided atomically server-side (overspend
+    // is 0 when no budget is configured), so the UI routes every expense here.
+    let args: unknown;
+    makeClient({
+      rpc: {
+        apply_expense: (a: unknown) => {
+          args = a;
+          return { data: { overspend_amount: 0 }, error: null };
+        },
+      },
+    });
+    const res = await recordSpend(USER_A_ID, {
+      category: "Food",
+      subcategory: "Swiggy",
+      amount: 340,
+      note: "lunch",
+    });
+    expect(args).toMatchObject({
+      p_category: "Food",
+      p_subcategory: "Swiggy",
+      p_amount: 340,
+      p_note: "lunch",
+      p_is_credit_card: false,
+    });
+    expect(res.overspendAmount).toBe(0);
   });
 
   it("recordSpend returns the server-computed overspend amount", async () => {
@@ -365,6 +450,59 @@ describe("atomic financial RPC wiring (server computes balances)", () => {
     } finally {
       supabase.from = prevFrom;
     }
+  });
+});
+
+describe("payCreditCard — atomic bill payment RPC wiring", () => {
+  it("calls the pay_credit_card RPC with the amount and source", async () => {
+    let args: unknown;
+    makeClient({
+      rpc: {
+        pay_credit_card: (a: unknown) => {
+          args = a;
+          return { data: { outstanding: 3000, source: "salary" }, error: null };
+        },
+      },
+    });
+    const res = await payCreditCard(2000, "salary");
+    expect(args).toMatchObject({ p_amount: 2000, p_source: "salary" });
+    expect(res.outstanding).toBe(3000);
+  });
+
+  it("routes savings-source payments through p_source=savings", async () => {
+    let args: unknown;
+    makeClient({
+      rpc: {
+        pay_credit_card: (a: unknown) => {
+          args = a;
+          return { data: { outstanding: 0, source: "savings" }, error: null };
+        },
+      },
+    });
+    await payCreditCard(1500, "savings");
+    expect(args).toMatchObject({ p_amount: 1500, p_source: "savings" });
+  });
+
+  it("surfaces exceeded-outstanding errors from the RPC", async () => {
+    makeClient({
+      rpc: {
+        pay_credit_card: () => ({ data: null, error: { message: "payment_exceeds_outstanding" } }),
+      },
+    });
+    await expect(payCreditCard(99999, "salary")).rejects.toThrow(
+      "more than your outstanding"
+    );
+  });
+
+  it("surfaces insufficient source balance errors from the RPC", async () => {
+    makeClient({
+      rpc: {
+        pay_credit_card: () => ({ data: null, error: { message: "insufficient_balance" } }),
+      },
+    });
+    await expect(payCreditCard(5000, "savings")).rejects.toThrow(
+      "salary balance"
+    );
   });
 });
 

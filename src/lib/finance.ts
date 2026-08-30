@@ -21,7 +21,8 @@ export type Transaction = {
     | "savings_move"
     | "expense"
     | "credit_card"
-    | "loan_add";
+    | "loan_add"
+    | "credit_card_payment";
   category: string | null;
   subcategory: string | null;
   amount: number;
@@ -55,6 +56,10 @@ export function rpcErrorMessage(err: { message?: string; code?: string; details?
       return new Error("Amount must be greater than zero.");
     case "profile_not_found":
       return new Error("Account not found. Please sign out and back in.");
+    case "invalid_source":
+      return new Error("That payment source isn't supported.");
+    case "payment_exceeds_outstanding":
+      return new Error("That's more than your outstanding card bill.");
     case "invalid_kind":
       return new Error("That income type isn't supported.");
     case "category_invalid":
@@ -154,6 +159,23 @@ export async function recordSpend(
   });
   if (error) throw rpcErrorMessage(error);
   return { overspendAmount: Number((data as { overspend_amount?: number })?.overspend_amount ?? 0) };
+}
+
+/**
+ * Pays down the outstanding credit-card bill, deducting from the chosen
+ * source ('salary' = account balance, 'savings'). Runs atomically server-side
+ * and returns the new outstanding balance.
+ */
+export async function payCreditCard(
+  amount: number,
+  source: "salary" | "savings"
+): Promise<{ outstanding: number }> {
+  const { data, error } = await supabase.rpc("pay_credit_card", {
+    p_amount: amount,
+    p_source: source,
+  });
+  if (error) throw rpcErrorMessage(error);
+  return { outstanding: Number((data as { outstanding?: number })?.outstanding ?? 0) };
 }
 
 export async function getRecentTransactions(

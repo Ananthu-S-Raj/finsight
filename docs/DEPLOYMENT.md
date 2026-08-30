@@ -36,7 +36,68 @@ OPENAI_API_KEY=sk-...           # Optional, for AI insights
 ```
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 CRON_SECRET=your-cron-secret
+VAPID_PUBLIC_KEY=BM...      # public half — must match NEXT_PUBLIC_VAPID_PUBLIC_KEY
+VAPID_PRIVATE_KEY=...       # private half — never expose to clients
+VAPID_SUBJECT=mailto:you@example.com
 ```
+
+### VAPID keys (push notifications)
+
+Push requires one matching keypair in two places:
+
+1. **Client** (Render env): `NEXT_PUBLIC_VAPID_PUBLIC_KEY` = the public key.
+   Without a real key the app refuses to subscribe and Settings reports
+   "Push is misconfigured (invalid VAPID key)" instead of claiming success.
+2. **Server** (Supabase Edge Function secrets): `VAPID_PUBLIC_KEY` +
+   `VAPID_PRIVATE_KEY` + `VAPID_SUBJECT`, consumed by `daily-reminder`,
+   `bill-reminder`, `process-recurring` and `test-notification`.
+
+Generate once with:
+
+```bash
+npx web-push generate-vapid-keys --json
+```
+
+or the project helper (print-only, never persists the private key):
+
+```bash
+node scripts/generate-vapid-keys.mjs
+```
+
+Put the `publicKey` value into `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and both the
+`publicKey`/`privateKey` values into the Supabase secrets. The Edge Functions
+refuse to run (HTTP 500 `vapid_not_configured`) until `VAPID_*` are set.
+
+Apply the database migration (creates/upgrades the `push_subscriptions` table
+with RLS + the prefs column on projects that only ran migrations):
+
+```bash
+supabase db push
+```
+
+Deploy the sender functions:
+
+```bash
+supabase functions deploy test-notification daily-reminder bill-reminder process-recurring
+```
+
+After deployment, verify push end-to-end from Settings → Notifications:
+**Send test notification** should deliver "Test notification received
+successfully." to every registered device.
+
+#### Testing push on Android
+
+1. Open the deployed app in **Chrome on Android** (mobile site or the installed
+   PWA via Add to Home Screen).
+2. Settings → Notifications → toggle **Push notifications** ON. Chrome prompts
+   for permission — choose **Allow**.
+3. Settings shows **This device is registered for push** and a **Send test
+   notification** button appears.
+4. Tap it. A notification **FinSight — "Test notification received
+   successfully."** appears even with the app closed (Android may group it in
+   the notification drawer).
+5. Chrome DevTools (desktop, same account) → Application → Service Workers →
+   "Push" simulation verifies the worker handles the event.
 
 ## Render Service Setup
 

@@ -39,6 +39,12 @@ export function buildCspHeader({ nonce, isDev = false, supabaseUrl }: CspOptions
   if (supabaseUrl) {
     const host = new URL(supabaseUrl).host;
     connectSources.push(`https://${host}`, `wss://${host}`);
+    // Supabase-hosting exposes Edge Functions on a dedicated `.functions.`
+    // sub-host; self-hosted / custom domains do not, so it is added only when
+    // the project host follows the standard pattern.
+    if (host.endsWith(".supabase.co")) {
+      connectSources.push(`https://${host.replace(/\.supabase\.co$/, ".functions.supabase.co")}`);
+    }
   }
   if (isDev) {
     connectSources.push("ws://localhost:*", "http://localhost:*", "ws://127.0.0.1:*", "http://127.0.0.1:*");

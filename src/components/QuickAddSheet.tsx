@@ -229,7 +229,7 @@ export default function QuickAddSheet({
             Amount
           </p>
           <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-semibold text-slate" aria-hidden="true">
+            <span className="pointer-events-none select-none absolute left-4 top-1/2 -translate-y-1/2 w-8 text-center text-2xl font-semibold text-slate" aria-hidden="true">
               ₹
             </span>
             <input

@@ -12,6 +12,7 @@ export const TXN_LABEL: Record<Transaction["type"], string> = {
   expense: "Expense",
   credit_card: "Card charge",
   loan_add: "Loan received",
+  credit_card_payment: "Card payment",
 };
 
 export const TXN_SIGN: Record<Transaction["type"], "+" | "-"> = {
@@ -21,6 +22,7 @@ export const TXN_SIGN: Record<Transaction["type"], "+" | "-"> = {
   expense: "-",
   credit_card: "-",
   loan_add: "+",
+  credit_card_payment: "-",
 };
 
 export function txIcon(tx: Transaction): IconName {
@@ -35,6 +37,8 @@ export function txIcon(tx: Transaction): IconName {
       return "expense";
     case "credit_card":
       return "creditCard";
+    case "credit_card_payment":
+      return "creditCard";
     case "loan_add":
       return "coins";
   }
@@ -42,6 +46,7 @@ export function txIcon(tx: Transaction): IconName {
 
 export function txColor(tx: Transaction): string {
   if (tx.type === "credit_card") return "#f59e0b";
+  if (tx.type === "credit_card_payment") return "#6366f1";
   if (TXN_SIGN[tx.type] === "+") return "#10b981";
   return "#ef4444";
 }
@@ -51,6 +56,7 @@ export function txTitle(tx: Transaction): string {
     return tx.subcategory || tx.category || "Expense";
   }
   if (tx.type === "loan_add") return "Loan received";
+  if (tx.type === "credit_card_payment") return "Card payment";
   if (tx.note) return `${TXN_LABEL[tx.type]} · ${tx.note}`;
   return TXN_LABEL[tx.type];
 }
@@ -66,6 +72,8 @@ export function txSubtitle(tx: Transaction): string {
   if (tx.type === "savings_add" && tx.note) parts.push(tx.note);
   if (tx.type === "loan_add" && tx.note) parts.push(`from ${tx.note}`);
   if (tx.type === "savings_move") parts.push("salary → savings");
+  if (tx.type === "credit_card_payment" && tx.note)
+    parts.push(tx.note === "savings" ? "savings" : "account balance");
   if (parts.length === 0) parts.push(TXN_LABEL[tx.type]);
   return parts.join(" · ");
 }

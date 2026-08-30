@@ -8,6 +8,7 @@ import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/Icons";
 import TransactionRow from "@/components/TransactionRow";
 import TransactionDetailSheet from "@/components/TransactionDetailSheet";
+import PayBillSheet from "@/components/PayBillSheet";
 import { BalanceSkeleton } from "@/components/ui/Skeleton";
 import { useRequireAuth } from "@/lib/useAuth";
 import { usePageData } from "@/lib/usePageData";
@@ -19,25 +20,32 @@ export default function CardsPage() {
   const userId = useRequireAuth();
   const { profile, txns, summary, loading } = usePageData(userId, 200);
   const [selected, setSelected] = useState<Transaction | null>(null);
+  const [payOpen, setPayOpen] = useState(false);
   const openQuickAdd = useQuickAdd();
 
   useEffect(() => {
     document.title = "Credit Cards · FinSight";
   }, []);
 
-  const { cardTxns, cardTotal, largest } = useMemo(() => {
+  const { cardTxns, cardTotal, largest, outstanding, charges, payments } = useMemo(() => {
     const now = new Date();
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    const list = txns.filter((t) => t.type === "credit_card");
+    const charges = txns.filter((t) => t.type === "credit_card");
+    const payments = txns.filter((t) => t.type === "credit_card_payment");
     let total = 0;
     let max = 0;
-    for (const t of list) {
+    for (const t of charges) {
       if (new Date(t.created_at).getTime() >= start.getTime()) {
         total += Number(t.amount);
         max = Math.max(max, Number(t.amount));
       }
     }
-    return { cardTxns: list, cardTotal: total, largest: max };
+    const paid = payments.reduce((s, t) => s + Number(t.amount), 0);
+    const outstanding = charges.reduce((s, t) => s + Number(t.amount), 0) - paid;
+    const list = [...charges, ...payments].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    return { cardTxns: list, cardTotal: total, largest: max, outstanding, charges, payments };
   }, [txns]);
 
   const limit = summary.budget > 0 ? summary.budget : 0;
@@ -114,7 +122,7 @@ export default function CardsPage() {
             </div>
           )}
 
-          {cardTotal === 0 && (
+          {cardTotal === 0 && charges.length === 0 && payments.length === 0 && (
             <GlassCard className="p-8 flex flex-col items-center text-center gap-3">
               <span className="h-14 w-14 rounded-2xl glass inline-flex items-center justify-center text-slate">
                 <Icon name="card" size={24} />
@@ -123,6 +131,33 @@ export default function CardsPage() {
               <p className="text-sm text-slate max-w-xs">
                 Log card purchases separately so you can see exactly how much is going on plastic.
               </p>
+            </GlassCard>
+          )}
+
+          {outstanding > 0 && (
+            <GlassCard className="p-5">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[13px] uppercase tracking-widest text-slate mb-1">
+                    Outstanding bill
+                  </p>
+                  <p className="text-2xl font-bold text-snow tabular">{inr(outstanding)}</p>
+                  <p className="text-[13px] text-slate mt-1.5">
+                    Payable from{" "}
+                    <span className="text-snow">account {inr(profile?.salary_balance ?? 0)}</span>
+                    {" · "}
+                    <span className="text-snow">savings {inr(profile?.savings_balance ?? 0)}</span>
+                  </p>
+                </div>
+                <Button variant="primary" icon="check" onClick={() => setPayOpen(true)}>
+                  Pay bill
+                </Button>
+              </div>
+              {payments.length > 0 && (
+                <p className="text-[13px] text-slate mt-3">
+                  {inr(payments.reduce((s, t) => s + Number(t.amount), 0))} already paid.
+                </p>
+              )}
             </GlassCard>
           )}
 
@@ -139,6 +174,14 @@ export default function CardsPage() {
               </div>
             </section>
           )}
+
+          <PayBillSheet
+            open={payOpen}
+            onClose={() => setPayOpen(false)}
+            outstanding={Math.max(0, outstanding)}
+            accountBalance={profile?.salary_balance ?? 0}
+            savingsBalance={profile?.savings_balance ?? 0}
+          />
 
           <TransactionDetailSheet
             tx={selected}

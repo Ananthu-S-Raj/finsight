@@ -181,7 +181,7 @@ export default function GoalFormSheet({
           <div>
             <p className="field-label">Target amount</p>
             <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-semibold text-slate" aria-hidden="true">
+              <span className="pointer-events-none select-none absolute left-4 top-1/2 -translate-y-1/2 w-6 text-center text-lg font-semibold text-slate" aria-hidden="true">
                 ₹
               </span>
               <input
@@ -189,7 +189,7 @@ export default function GoalFormSheet({
                 value={targetAmount}
                 onChange={(e) => setTargetAmount(e.target.value.replace(/[^0-9.]/g, ""))}
                 placeholder="0"
-                className="field !pl-11 text-xl font-semibold tabular tracking-tight"
+                className="field !pl-12 text-xl font-semibold tabular tracking-tight"
                 aria-label="Target amount"
               />
             </div>
@@ -210,7 +210,7 @@ export default function GoalFormSheet({
           <div>
             <p className="field-label">Already saved (optional)</p>
             <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-semibold text-slate" aria-hidden="true">
+              <span className="pointer-events-none select-none absolute left-4 top-1/2 -translate-y-1/2 w-6 text-center text-lg font-semibold text-slate" aria-hidden="true">
                 ₹
               </span>
               <input
@@ -218,7 +218,7 @@ export default function GoalFormSheet({
                 value={currentAmount}
                 onChange={(e) => setCurrentAmount(e.target.value.replace(/[^0-9.]/g, ""))}
                 placeholder="0"
-                className="field !pl-11 text-xl font-semibold tabular tracking-tight"
+                className="field !pl-12 text-xl font-semibold tabular tracking-tight"
                 aria-label="Already saved"
               />
             </div>

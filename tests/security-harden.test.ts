@@ -44,9 +44,11 @@ describe("CSP header builder", () => {
     expect(csp).toContain("manifest-src 'self'");
   });
 
-  it("allows the Supabase project in connect-src over https and wss", () => {
+  it("allows the Supabase project + Edge Function host in connect-src over https and wss", () => {
     const csp = buildCspHeader({ nonce: "abc", supabaseUrl: "https://proj.supabase.co" });
-    expect(csp).toContain("connect-src 'self' https://proj.supabase.co wss://proj.supabase.co");
+    expect(csp).toContain(
+      "connect-src 'self' https://proj.supabase.co wss://proj.supabase.co https://proj.functions.supabase.co"
+    );
   });
 
   it("adds upgrade-insecure-requests only in production", () => {

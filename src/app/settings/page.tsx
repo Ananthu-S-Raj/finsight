@@ -13,7 +13,7 @@ import { useToast } from "@/components/ui/ToastProvider";
 import { useRequireAuth } from "@/lib/useAuth";
 import { usePageData } from "@/lib/usePageData";
 import { useSettings, type ThemeMode } from "@/lib/settings";
-import { currentPermission, isSubscribed, subscribeForPush, syncPushPrefs, unsubscribeFromPush, supportsPush } from "@/lib/push";
+import { currentPermission, getVapidIssue, isSubscribed, sendTestNotification, subscribeForPush, syncPushPrefs, unsubscribeFromPush, supportsPush } from "@/lib/push";
 import { supabase } from "@/lib/supabaseClient";
 import { haptic } from "@/lib/haptics";
 import PasswordStrength from "@/components/PasswordStrength";
@@ -60,6 +60,7 @@ export default function SettingsPage() {
   const [subscribed, setSubscribed] = useState(false);
   const [permission, setPermission] = useState(currentPermission());
   const [pushBusy, setPushBusy] = useState(false);
+  const [testBusy, setTestBusy] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
   const [installBusy, setInstallBusy] = useState(false);
@@ -163,10 +164,16 @@ export default function SettingsPage() {
       patchNotifications({ push: false });
       if (result.reason === "denied") {
         toast.info("Notifications are blocked. Enable them in your browser site settings.");
+      } else if (result.reason === "default") {
+        toast.info("Notifications are pending — choose “Allow” in the browser prompt.");
       } else if (result.reason === "missing-vapid") {
-        toast.info("Push isn't configured yet — a VAPID public key is missing.");
+        toast.info("Push notifications are not configured on this deployment yet.");
       } else if (result.reason === "invalid-vapid") {
         toast.warning("Push is misconfigured (invalid VAPID key). Please contact support.");
+      } else if (result.reason === "no-worker") {
+        toast.info("Unable to register the notification service — reload the app and try again.");
+      } else if (result.reason === "save-failed") {
+        toast.warning("Unable to save your notification subscription. Please try again.");
       } else {
         toast.warning("Couldn't enable notifications right now. Your browser declined the subscription.");
       }
@@ -178,6 +185,28 @@ export default function SettingsPage() {
       patchNotifications({ push: false });
       toast.success("Notifications disabled.");
       refreshPush();
+    }
+  }
+
+  async function sendTest() {
+    if (!userId) return;
+    setTestBusy(true);
+    try {
+      const result = await sendTestNotification(userId);
+      if (result.ok) {
+        haptic("success");
+        toast.success("Test notification sent.");
+      } else if (result.reason === "not-subscribed") {
+        toast.info("This device isn't registered for push yet.");
+      } else if (result.reason === "permission") {
+        toast.info("Grant notification permission before sending a test.");
+      } else if (result.reason === "missing-vapid") {
+        toast.warning("Push isn't configured server-side — VAPID keys are missing.");
+      } else {
+        toast.warning("Couldn't send a test notification right now.");
+      }
+    } finally {
+      setTestBusy(false);
     }
   }
 
@@ -377,8 +406,26 @@ export default function SettingsPage() {
                       : "Budget alerts, reminders and more."
                 }
               >
-                <Toggle on={settings.notifications.push} onChange={togglePush} disabled={pushBusy} label="Push notifications" />
+                <Toggle on={subscribed} onChange={togglePush} disabled={pushBusy} label="Push notifications" />
               </SettingRow>
+              {subscribed && (
+                <div className="border-t border-line px-5 py-3">
+                  <Button variant="ghost" full icon="bell" onClick={sendTest} disabled={testBusy}>
+                    {testBusy ? "Sending…" : "Send test notification"}
+                  </Button>
+                  <p className="text-[12px] text-muted mt-2 text-center">
+                    Delivered instantly to every device you registered.
+                  </p>
+                </div>
+              )}
+              {!subscribed && getVapidIssue() !== "ok" && permission !== "denied" && (
+                <div className="border-t border-line px-5 py-3">
+                  <p className="text-[13px] text-warn flex items-start gap-2">
+                    <Icon name="alert" size={15} className="mt-0.5 shrink-0" />
+                    Push can&apos;t be enabled yet — the app needs a valid VAPID key configured.
+                  </p>
+                </div>
+              )}
               <SettingRow icon="budgets" color="#f59e0b" title="Budget alerts" hint="Warn before you go over budget.">
                 <Toggle on={settings.notifications.budgetAlerts} onChange={(v) => patchNotifications({ budgetAlerts: v })} label="Budget alerts" />
               </SettingRow>

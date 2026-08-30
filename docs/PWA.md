@@ -72,7 +72,30 @@ The service worker handles:
 - `notificationclose` event: reserved for future quiet-hour tracking
 - Bridge: posts `finsight-push` messages to open windows for in-app sync
 
-Source: `public/sw.js`
+Delivery comes from three **Supabase Edge Functions** that read the VAPID
+secrets stored in the project dashboard:
+
+| Function | Trigger | Purpose |
+|---|---|---|
+| `test-notification` | Authenticated click in Settings → Notifications | One-off test to the caller's own devices |
+| `daily-reminder` | pg_cron (commented schedule in `schema.sql`) | Daily / budget / card / savings nudges |
+| `bill-reminder` | pg_cron (commented schedule in `20260812000000_bills_and_calendar.sql`) | Advance / due / overdue bill alerts |
+| `process-recurring` | pg_cron (commented schedule in `20260811000001_recurring.sql`) | Recurring-transaction follow-ups |
+
+The `push_subscriptions` table and its RLS policies are migration-first since
+`20260902000000_push_subscriptions.sql` (previously they existed only in
+`schema.sql`), so `supabase db push` deployments get the full ledger.
+
+Every subscription row is scoped to `auth.uid()`. When a user logs out and
+another logs in on the same device, the app shows the new user's registration
+state only — the previous user's rows are never readable or claimable by the
+new session (RLS + the per-endpoint unique index keep them isolated).
+
+The client never holds a private key; it only re-sends the public VAPID value
+it was built with. Stale subscriptions (HTTP 410/404) are removed from
+`push_subscriptions` automatically.
+
+Source: `public/sw.js` + `supabase/functions/*/index.ts`
 
 ## Icons
 
