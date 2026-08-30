@@ -149,6 +149,18 @@ describe("service worker install / activate", () => {
   });
 });
 
+describe("service worker update-detection stamp", () => {
+  it("embeds a per-deploy id in the cache name so sw.js bytes change on every release", () => {
+    // The browser only installs a new service worker when the script bytes
+    // change. A static cache id (e.g. "finsight-v4") means every deployment
+    // ships identical sw.js, controllerchange never fires, and the auto-update
+    // flow in UpdatePrompt never runs. `npm run build` stamps the id via
+    // scripts/stamp-sw.mjs, so a plain static literal is a regression.
+    expect(CACHE).not.toBe("finsight-v4");
+    expect(CACHE).toMatch(/^finsight-v4-(?:[0-9a-fA-F]{7,40}|\d{14})$/);
+  });
+});
+
 describe("service worker fetch strategy", () => {
   it("never caches Supabase calls — fails fast with a 503 JSON offline body", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new TypeError("offline"));
