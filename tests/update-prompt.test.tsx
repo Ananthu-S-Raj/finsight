@@ -1,132 +1,145 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import UpdatePrompt from "@/components/UpdatePrompt";
 
 /**
  * Fake service-worker surface matching what UpdatePrompt depends on:
  *   navigator.serviceWorker.controller
- *   navigator.serviceWorker.ready  -> registration
- *   navigator.serviceWorker.addEventListener("message", ...)
- *   registration.installing + registration.addEventListener("updatefound", ...)
- * We drive the update lifecycle manually: fire a message, transition the
- * installing worker to "installed", then post the version message.
+ *   navigator.serviceWorker.ready -> registration.update()
+ *   navigator.serviceWorker.addEventListener("message" | "controllerchange", ...)
+ *
+ * We drive the auto-update lifecycle directly:
+ *   - postVersion(v)   -> new worker reports its version on activate
+ *   - fireControl()    -> the new worker takes control (controllerchange)
+ *
+ * window.location.reload is stubbed so we can assert auto-reload happens
+ * exactly once per genuine update.
  */
-function installSWMock(opts: { controller?: boolean; prePrompted?: string | null }) {
+function installSWMock(opts: {
+  controller?: boolean;
+  prePending?: string | null;
+  preAnnounced?: string | null;
+}) {
   const msgHandlers = new Set<(event: { data: unknown }) => void>();
-  let updatefoundHandler: (() => void) | null = null;
-  let stateHandler: (() => void) | null = null;
-
-  const installing = {
-    state: "installing",
-    addEventListener: (_t: string, cb: () => void) => {
-      stateHandler = cb;
-    },
-  } as unknown as ServiceWorker;
-
-  const registration = {
-    installing,
-    addEventListener: (t: string, cb: () => void) => {
-      if (t === "updatefound") updatefoundHandler = cb;
-    },
-  } as unknown as ServiceWorkerRegistration;
+  const controlHandlers = new Set<() => void>();
+  const updateSpy = vi.fn(async () => {});
 
   const sw: unknown = {
     controller: opts.controller ? ({} as ServiceWorker) : null,
-    ready: Promise.resolve(registration),
-    addEventListener: (t: string, cb: (event: { data: unknown }) => void) => {
-      if (t === "message") msgHandlers.add(cb);
+    ready: Promise.resolve({ update: updateSpy }),
+    addEventListener: (t: string, cb: (event?: unknown) => void) => {
+      if (t === "message") msgHandlers.add(cb as (event: { data: unknown }) => void);
+      if (t === "controllerchange") controlHandlers.add(cb as () => void);
     },
-    removeEventListener: (t: string, cb: (event: { data: unknown }) => void) => {
-      if (t === "message") msgHandlers.delete(cb);
+    removeEventListener: (t: string, cb: (event?: unknown) => void) => {
+      if (t === "message") msgHandlers.delete(cb as (event: { data: unknown }) => void);
+      if (t === "controllerchange") controlHandlers.delete(cb as () => void);
     },
   };
 
-  if (opts.prePrompted != null) {
-    localStorage.setItem("finsight:sw:prompted-version", opts.prePrompted);
-  }
+  if (opts.prePending != null) localStorage.setItem("finsight:sw:pending-version", opts.prePending);
+  if (opts.preAnnounced != null) localStorage.setItem("finsight:sw:announced-version", opts.preAnnounced);
 
   return {
     sw,
-    /** Post a finsight-version message to every registered handler. */
+    updateSpy,
     postVersion(version: string) {
       for (const h of msgHandlers) h({ data: { type: "finsight-version", version } });
     },
-    /** Simulate an update being found and its worker installing. */
-    simulateUpdateFound() {
-      updatefoundHandler?.();
-      installing.state = "installed"; // a new worker reaches the installed state
-      stateHandler?.();
+    fireControl() {
+      for (const h of controlHandlers) h();
     },
   };
 }
 
+const reloadSpy = vi.fn();
+
 beforeEach(() => {
   cleanup();
   localStorage.clear();
+  reloadSpy.mockClear();
+  vi.stubGlobal("location", { ...window.location, reload: reloadSpy });
 });
 
 afterEach(() => {
-  // Unmount first (runs effect cleanups) while the mock navigator is still in
-  // place, then restore the real globals.
   cleanup();
   vi.unstubAllGlobals();
+  // Resolve any pending ready().update() microtasks so unhandled-rejection
+  // noise does not leak between tests.
+  vi.clearAllTimers();
 });
 
-describe("UpdatePrompt — PWA update banner", () => {
-  async function renderWithMock(opts: { controller?: boolean; prePrompted?: string | null }) {
-    const { sw, ...controls } = installSWMock(opts);
-    // Replaces the whole navigator object (jsdom's real serviceWorker property
-    // is non-configurable), matching the existing matchMedia stub pattern.
-    vi.stubGlobal("navigator", { ...navigator, serviceWorker: sw });
-    render(<UpdatePrompt />);
-    // Let the effect's `navigator.serviceWorker.ready.then(...)` microtask run
-    // so `updatefound` / `statechange` handlers are attached before we drive
-    // the lifecycle below.
-    await Promise.resolve();
-    await Promise.resolve();
-    return controls;
-  }
+async function renderWithMock(opts: { controller?: boolean; prePending?: string | null; preAnnounced?: string | null }) {
+  const controls = installSWMock(opts);
+  vi.stubGlobal("navigator", { ...navigator, serviceWorker: controls.sw });
+  render(<UpdatePrompt />);
+  // Let the effect run and its `ready.then(...)` microtask resolve.
+  await Promise.resolve();
+  await Promise.resolve();
+  return controls;
+}
 
-  it("does not show on a first install (no prior controller)", async () => {
+describe("UpdatePrompt — auto-update lifecycle", () => {
+  it("does nothing on a first install (no prior controller): no reload, no notice, no permission", async () => {
     await renderWithMock({ controller: false });
-    expect(screen.queryByRole("button", { name: /reload/i })).not.toBeInTheDocument();
+    expect(reloadSpy).not.toHaveBeenCalled();
+    expect(screen.queryByText(/FinSight has been updated/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("shows the banner when a new version activates while an old one controls the page", async () => {
-    const { simulateUpdateFound, postVersion } = await renderWithMock({ controller: true });
-
-    // An update is found: installing worker reaches `installed`, then the new
-    // worker posts its version on activate.
-    simulateUpdateFound();
-    postVersion("finsight-v5");
-
-    expect(await screen.findByText(/new version of FinSight is available/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /reload/i })).toBeInTheDocument();
-    expect(localStorage.getItem("finsight:sw:prompted-version")).toBe("finsight-v5");
+  it("checks for a newly deployed service worker on load via registration.update()", async () => {
+    const { updateSpy } = await renderWithMock({ controller: true });
+    expect(updateSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("does not show the same version again once prompted (per-version dedupe)", async () => {
-    const { simulateUpdateFound, postVersion } = await renderWithMock({
-      controller: true,
-      prePrompted: "finsight-v5",
-    });
-
-    simulateUpdateFound();
-    postVersion("finsight-v5");
-
-    expect(screen.queryByRole("button", { name: /reload/i })).not.toBeInTheDocument();
-  });
-
-  it("dismiss closes the banner and does not auto-reload", async () => {
-    const { simulateUpdateFound, postVersion } = await renderWithMock({ controller: true });
-
-    simulateUpdateFound();
+  it("auto-reloads exactly once when a new worker takes control, storing the pending version", async () => {
+    const { fireControl, postVersion } = await renderWithMock({ controller: true });
     postVersion("finsight-v6");
-    expect(await screen.findByRole("button", { name: /reload/i })).toBeInTheDocument();
+    fireControl();
 
-    fireEvent.click(screen.getByLabelText("Dismiss update notice"));
-    expect(screen.queryByRole("button", { name: /reload/i })).not.toBeInTheDocument();
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem("finsight:sw:pending-version")).toBe("finsight-v6");
+  });
+
+  it("does not loop: firing controllerchange repeatedly reloads only once", async () => {
+    const { fireControl } = await renderWithMock({ controller: true });
+    fireControl();
+    fireControl();
+    fireControl();
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces 'FinSight has been updated' once after the auto-update reload", async () => {
+    await renderWithMock({ controller: true, prePending: "finsight-v6" });
+
+    expect(screen.getByText(/FinSight has been updated/i)).toBeInTheDocument();
+    // The pending marker is consumed so a plain reload does not re-announce.
+    expect(localStorage.getItem("finsight:sw:pending-version")).toBeNull();
+    expect(reloadSpy).not.toHaveBeenCalled();
+  });
+
+  it("shows no notice on an ordinary reload (no pending marker)", async () => {
+    await renderWithMock({ controller: true });
+    expect(screen.queryByText(/FinSight has been updated/i)).not.toBeInTheDocument();
+  });
+
+  it("never announces the same version twice (per-version dedupe)", async () => {
+    await renderWithMock({ controller: true, prePending: "finsight-v6", preAnnounced: "finsight-v6" });
+    expect(screen.queryByText(/FinSight has been updated/i)).not.toBeInTheDocument();
+    expect(localStorage.getItem("finsight:sw:pending-version")).toBeNull();
+  });
+
+  it("announces a newer version even if an older one was already announced", async () => {
+    await renderWithMock({ controller: true, prePending: "finsight-v7", preAnnounced: "finsight-v6" });
+    expect(screen.getByText(/FinSight has been updated/i)).toBeInTheDocument();
+  });
+
+  it("requests no notification permission", async () => {
+    const requestSpy = vi.fn(async () => "granted");
+    vi.stubGlobal("Notification", { permission: "granted", requestPermission: requestSpy });
+    await renderWithMock({ controller: true, prePending: "finsight-v6" });
+    expect(requestSpy).not.toHaveBeenCalled();
   });
 });

@@ -7,8 +7,12 @@ import { Logo } from "./ui/Icons";
  * Android-style launch splash. Rendered by the root layout, so its markup
  * ships with the very first server HTML and covers the viewport before any
  * page content (dashboard or login) can flash underneath. It lives outside
- * the routed tree, so client-side navigations never remount it — it only
- * appears on a cold start / full page load.
+ * the routed tree, so client-side navigations never remount it.
+ *
+ * A sessionStorage guard ensures it plays only once per tab session: on a
+ * genuine cold start (fresh tab / browser launch) it shows, then a flag is set
+ * so any subsequent full page load in the same tab (plain <a> navigation, the
+ * PWA auto-update reload, etc.) does NOT replay the startup splash.
  *
  * Hides after a short minimum display time (so the logo is actually seen),
  * fades out via CSS (the global reduced-motion rules collapse the fade to
@@ -20,12 +24,43 @@ const MIN_DISPLAY_MS = 700;
 const FADE_MS = 300;
 const HARD_CAP_MS = 4000;
 
+// The splash should only play once per browser tab session (sessionStorage
+// survives client-side navigation and reloads within a tab). Without this, any
+// full page load — e.g. a plain <a> navigation or the PWA update reload —
+// remounts the root layout and replays the full startup splash on every
+// navigation. sessionStorage guarantees it appears only on a genuine cold
+// start (fresh tab / browser launch) and never on routine in-app navigation.
+const SESSION_KEY = "finsight:startup-splash-shown";
+
+function hasShownInSession(): boolean {
+  try {
+    return sessionStorage.getItem(SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markShownInSession() {
+  try {
+    sessionStorage.setItem(SESSION_KEY, "1");
+  } catch {
+    // storage unavailable
+  }
+}
+
 type Phase = "visible" | "fading" | "gone";
 
 export default function StartupSplash() {
-  const [phase, setPhase] = useState<Phase>("visible");
+  const [phase, setPhase] = useState<Phase>(() =>
+    hasShownInSession() ? "gone" : "visible"
+  );
 
   useEffect(() => {
+    markShownInSession();
+  }, []);
+
+  useEffect(() => {
+    if (phase === "gone") return;
     let fadeTimer: number | undefined;
     let capTimer: number | undefined;
     // Start counting from the first painted frame.
@@ -38,7 +73,7 @@ export default function StartupSplash() {
       if (fadeTimer !== undefined) window.clearTimeout(fadeTimer);
       if (capTimer !== undefined) window.clearTimeout(capTimer);
     };
-  }, []);
+  }, [phase]);
 
   useEffect(() => {
     if (phase !== "fading") return;

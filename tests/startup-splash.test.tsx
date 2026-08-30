@@ -6,11 +6,13 @@ import StartupSplash from "@/components/StartupSplash";
 
 beforeEach(() => {
   cleanup();
+  sessionStorage.clear();
   vi.useFakeTimers();
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  sessionStorage.clear();
 });
 
 describe("StartupSplash", () => {
@@ -63,5 +65,37 @@ describe("StartupSplash", () => {
     });
     expect(screen.queryByTestId("startup-splash")).not.toBeInTheDocument();
     expect(screen.getByTestId("app-content")).toBeInTheDocument();
+  });
+});
+
+describe("StartupSplash — only appears on first load of a tab session (Bug 4)", () => {
+  it("shows on a genuine cold start (no prior splash in this session)", () => {
+    render(<StartupSplash />);
+    expect(screen.getByTestId("startup-splash")).toBeInTheDocument();
+  });
+
+  it("does NOT replay the splash when the layout remounts during navigation in the same session", () => {
+    // Cold start: first page load of the tab shows the splash and records it
+    // in sessionStorage.
+    render(<StartupSplash />);
+    expect(screen.getByTestId("startup-splash")).toBeInTheDocument();
+    cleanup();
+
+    // Navigating Home -> Analytics remounts the (shared) layout in the same
+    // tab session. The splash must NOT appear again.
+    render(<StartupSplash />);
+    expect(screen.queryByTestId("startup-splash")).not.toBeInTheDocument();
+  });
+
+  it("shows again in a brand-new session (fresh tab)", () => {
+    // A navigation remount marks the splash as shown for this session...
+    render(<StartupSplash />);
+    cleanup();
+
+    // ...but a brand-new browser session (new tab) clears sessionStorage and
+    // must see the startup splash again on cold start.
+    sessionStorage.clear();
+    render(<StartupSplash />);
+    expect(screen.getByTestId("startup-splash")).toBeInTheDocument();
   });
 });

@@ -6,7 +6,7 @@ const from = vi.fn(() => ({ update, eq }));
 
 vi.mock("@/lib/supabaseClient", () => ({ supabase: { from } }));
 
-const { currentPermission, supportsPush, syncPushPrefs } = await import("@/lib/push");
+const { currentPermission, supportsPush, syncPushPrefs, isValidVapidKey } = await import("@/lib/push");
 
 describe("push guards", () => {
   beforeEach(() => {
@@ -22,6 +22,29 @@ describe("push guards", () => {
     vi.stubGlobal("window", {});
     expect(supportsPush()).toBe(false);
     expect(currentPermission()).toBe("unsupported");
+  });
+});
+
+describe("isValidVapidKey", () => {
+  const valid65Byte = "A".repeat(87); // decodes to a 65-byte (P-256) key
+
+  it("rejects a missing / undefined key", () => {
+    expect(isValidVapidKey(undefined)).toBe(false);
+    expect(isValidVapidKey("")).toBe(false);
+  });
+
+  it("rejects the placeholder 'generated-vapid-public-key'", () => {
+    expect(isValidVapidKey("generated-vapid-public-key")).toBe(false);
+    expect(isValidVapidKey("generated-vapid-anything")).toBe(false);
+  });
+
+  it("rejects malformed keys that do not decode to 65 bytes", () => {
+    expect(isValidVapidKey("A".repeat(10))).toBe(false);
+    expect(isValidVapidKey("!!!not-base64!!!")).toBe(false);
+  });
+
+  it("accepts a real 65-byte URL-safe base64 key", () => {
+    expect(isValidVapidKey(valid65Byte)).toBe(true);
   });
 });
 

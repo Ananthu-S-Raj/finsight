@@ -29,6 +29,30 @@ function urlBase64ToUint8Array(base64String: string) {
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
 
+const VAPID_PLACEHOLDER = "generated-vapid-public-key";
+
+/**
+ * Validates the configured VAPID public key before asking the push service for
+ * a subscription.
+ *
+ * A real VAPID public key is a 65-byte URL-safe base64-encoded P-256 point.
+ * The placeholder value (`generated-vapid-public-key`) shipped in .env.local
+ * is NOT a key — subscribing with it makes the browser's push service reject
+ * the application server, which surfaces as the generic "couldn't enable
+ * notifications" failure. We detect missing / placeholder / malformed keys up
+ * front so the UI can report the real cause instead.
+ */
+export function isValidVapidKey(key: string | undefined): boolean {
+  if (!key) return false;
+  if (key === VAPID_PLACEHOLDER || /^generated-vapid/i.test(key)) return false;
+  try {
+    // VAPID application server keys for web push are 65 bytes (P-256).
+    return urlBase64ToUint8Array(key).length === 65;
+  } catch {
+    return false;
+  }
+}
+
 /** Lists this device's stored subscription (by endpoint). */
 export async function getStoredSubscriptions(userId: string) {
   const { data, error } = await supabase
@@ -56,8 +80,11 @@ export async function subscribeForPush(
   }
 
   const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  if (!vapidKey || vapidKey === "generated-vapid-public-key") {
+  if (!vapidKey) {
     return { ok: false, reason: "missing-vapid" };
+  }
+  if (!isValidVapidKey(vapidKey)) {
+    return { ok: false, reason: "invalid-vapid" };
   }
 
   try {
@@ -130,13 +157,25 @@ export async function unsubscribeFromPush(userId: string) {
   return { removed: toRemove.length };
 }
 
-/** Whether this device already has a subscription for push. */
+/**
+ * Whether this device is genuinely registered for push: a browser push
+ * subscription exists AND it is persisted server-side. We intentionally do NOT
+ * report "registered" from the browser subscription alone — a browser sub whose
+ * server row failed to insert (e.g. a DB/persistence error during enable) is not
+ * actually usable, so the settings UI must not claim "This device is registered
+ * for push" for it.
+ */
 export async function isSubscribed(userId: string): Promise<boolean> {
   try {
     if (!supportsPush()) return false;
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
-    return Boolean(sub);
+    if (!sub) return false;
+    const rows = await getStoredSubscriptions(userId);
+    const endpoint = sub.endpoint;
+    return rows.some(
+      (row) => (row.subscription as { endpoint?: string } | null)?.endpoint === endpoint
+    );
   } catch {
     return false;
   }

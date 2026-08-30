@@ -1,95 +1,120 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Icon from "./ui/Icons";
-import Button from "./ui/Button";
 
-const PROMPTED_KEY = "finsight:sw:prompted-version";
+const PENDING_KEY = "finsight:sw:pending-version";
+const ANNOUNCED_KEY = "finsight:sw:announced-version";
+const NOTICE_MS = 6000;
 
-function readPromptedVersion(): string | null {
+function readStorage(key: string): string | null {
   try {
-    return localStorage.getItem(PROMPTED_KEY);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function writePromptedVersion(v: string) {
+function writeStorage(key: string, value: string) {
   try {
-    localStorage.setItem(PROMPTED_KEY, v);
+    localStorage.setItem(key, value);
+  } catch {
+    // storage unavailable
+  }
+}
+
+function removeStorage(key: string) {
+  try {
+    localStorage.removeItem(key);
   } catch {
     // storage unavailable
   }
 }
 
 /**
- * In-app "new version available" banner.
+ * Auto-update PWA lifecycle.
  *
- * The service worker activates only once (the first time a given version runs
- * and takes control), then posts a `finsight-version` message to every window
- * (see sw.js `activate`). So a version message is always evidence of a newly
- * activated worker. When that happens while an OLDER worker already controls
- * the page, it is an in-place update and we show a Reload banner.
+ * No permission is requested and no user action is required:
+ *   1. A newly deployed service worker installs and immediately calls
+ *      skipWaiting() (see sw.js), so it becomes active without asking.
+ *   2. In `activate` it calls clients.claim() (taking control of every open
+ *      window) and posts a `finsight-version` message.
+ *   3. This component listens for `controllerchange` — the new worker now
+ *      controls the page — and reloads the app ONCE to run the new code.
+ *   4. Before reloading it stores a "pending version" marker in localStorage.
+ *      The post-reload page consumes that marker and shows a small
+ *      "FinSight has been updated" notice exactly once per version.
  *
- * - Reload only on user click (never auto-reload).
- * - No browser notification permission request; no system push used.
- * - Deduped per version (persisted in localStorage): we won't show the same
- *   version twice, including after a reload of the newly controlled page.
- * - A first-ever install (no prior controlling worker) is not treated as an
- *   update and never shows the banner.
+ * Guards:
+ *   - First install (no controlling worker at mount) is never treated as an
+ *     update: no reload, no notice.
+ *   - The reload is one-shot per page load; after the auto-update reload no
+ *     controllerchange can fire again (control already switched), so there is
+ *     no infinite reload loop.
+ *   - A normal reload/navigation shows no notice because the pending marker is
+ *     consumed the first time; the same version is never announced twice.
+ *   - No Notification/Push usage here — this is separate from push
+ *     notifications entirely.
  */
 export default function UpdatePrompt() {
-  const [version, setVersion] = useState<string | null>(null);
-  const rejectedRef = useRef(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!("serviceWorker" in navigator)) return;
+    // First install: nothing controlled the page before, so this cannot be an
+    // update. Skip all update handling (no reload, no notice).
     if (!navigator.serviceWorker.controller) return;
 
-    let cancelled = false;
-    // Set true once a newer worker reaches the `installed` state while an
-    // older worker controls the page — that is the signal that the next
-    // version message is an update, not a first install.
-    let awaitingUpdate = false;
+    // If a previous page announced its update by reloading, this load consumes
+    // that marker and shows the notice once per version.
+    const pending = readStorage(PENDING_KEY);
+    if (pending) {
+      removeStorage(PENDING_KEY);
+      const announced = readStorage(ANNOUNCED_KEY);
+      if (announced !== pending) {
+        writeStorage(ANNOUNCED_KEY, pending);
+        setNotice(pending);
+      }
+    }
+
+    // Check for a newly deployed worker shortly after load (the browser also
+    // checks on navigation/revisit, this just catches it sooner).
+    navigator.serviceWorker.ready.then((reg) => reg.update()).catch(() => {});
+
+    let latestVersion: string | null = null;
+    let reloaded = false;
 
     const onMessage = (event: MessageEvent) => {
       const data = event.data as { type?: string; version?: string } | null;
       if (!data || data.type !== "finsight-version" || !data.version) return;
-      if (!awaitingUpdate) return; // no update observed — ignore
-      if (rejectedRef.current) return;
-      const already = readPromptedVersion();
-      if (already === data.version) return; // already prompted for this version
-      writePromptedVersion(data.version);
-      setVersion(data.version);
+      latestVersion = data.version;
     };
 
-    const track = (worker: ServiceWorker | null) => {
-      if (!worker) return;
-      worker.addEventListener("statechange", () => {
-        // `installed` fires during install, strictly before `activate` (which
-        // posts the version message), so awaitingUpdate is guaranteed set
-        // before the message arrives.
-        if (worker.state === "installed") awaitingUpdate = true;
-      });
+    const onControllerChange = () => {
+      // A newer service worker now controls this page: the update is active.
+      // Mark the pending version and reload once to run the new app code.
+      if (reloaded) return;
+      reloaded = true;
+      writeStorage(PENDING_KEY, latestVersion ?? "latest");
+      window.location.reload();
     };
 
     navigator.serviceWorker.addEventListener("message", onMessage);
-    navigator.serviceWorker.ready
-      .then((reg) => {
-        if (cancelled) return;
-        track(reg.installing);
-        reg.addEventListener("updatefound", () => track(reg.installing));
-      })
-      .catch(() => {});
-
+    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
     return () => {
-      cancelled = true;
       navigator.serviceWorker.removeEventListener("message", onMessage);
+      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
     };
   }, []);
 
-  if (!version) return null;
+  useEffect(() => {
+    if (!notice) return;
+    const t = window.setTimeout(() => setNotice(null), NOTICE_MS);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
+  if (!notice) return null;
 
   return (
     <div className="fixed inset-x-0 top-0 z-[90] p-4 safe-top" style={{ paddingTop: "calc(var(--safe-top) + 12px)" }}>
@@ -98,24 +123,16 @@ export default function UpdatePrompt() {
           <Icon name="refresh" size={18} />
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-snow">A new version of FinSight is available.</p>
-          <p className="text-[13px] text-slate leading-snug">Tap Reload to get the latest improvements.</p>
+          <p className="text-sm font-medium text-snow">FinSight has been updated.</p>
+          <p className="text-[13px] text-slate leading-snug">You&apos;re on the latest version.</p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={() => {
-              rejectedRef.current = true;
-              setVersion(null);
-            }}
-            aria-label="Dismiss update notice"
-            className="neo h-10 w-10 rounded-xl inline-flex items-center justify-center text-slate hover:text-snow"
-          >
-            <Icon name="close" size={15} />
-          </button>
-          <Button variant="primary" icon="refresh" onClick={() => window.location.reload()}>
-            Reload
-          </Button>
-        </div>
+        <button
+          onClick={() => setNotice(null)}
+          aria-label="Dismiss update notice"
+          className="neo h-10 w-10 rounded-xl inline-flex items-center justify-center text-slate hover:text-snow shrink-0"
+        >
+          <Icon name="close" size={15} />
+        </button>
       </div>
     </div>
   );

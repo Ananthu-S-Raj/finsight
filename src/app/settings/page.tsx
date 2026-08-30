@@ -157,16 +157,20 @@ export default function SettingsPage() {
         patchNotifications({ push: true });
         toast.success("Notifications enabled.");
         refreshPush();
-      } else if (result.reason === "denied") {
-        patchNotifications({ push: false });
+        return;
+      }
+      // Registration failed — never claim the device is enabled/registered.
+      patchNotifications({ push: false });
+      if (result.reason === "denied") {
         toast.info("Notifications are blocked. Enable them in your browser site settings.");
       } else if (result.reason === "missing-vapid") {
-        patchNotifications({ push: true });
-        toast.info("Permission granted — push activates once VAPID keys are configured.");
+        toast.info("Push isn't configured yet — a VAPID public key is missing.");
+      } else if (result.reason === "invalid-vapid") {
+        toast.warning("Push is misconfigured (invalid VAPID key). Please contact support.");
       } else {
-        patchNotifications({ push: false });
-        toast.warning("Couldn't enable notifications right now.");
+        toast.warning("Couldn't enable notifications right now. Your browser declined the subscription.");
       }
+      refreshPush();
     } else {
       setPushBusy(true);
       await unsubscribeFromPush(userId);

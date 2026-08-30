@@ -43,6 +43,33 @@ interface QuickAddSheetProps {
 }
 
 type FlowMode = "expense" | "income" | "transfer";
+type IncomeKind = "salary" | "savings" | "loan";
+
+/**
+ * Maps the entry mode to the sheet's concrete flow + income kind.
+ *
+ * "savings" (Add to savings from the Savings page / empty state) must open the
+ * income flow pre-selected on the Savings type so a user with no existing
+ * savings can set their initial amount. Previously "savings" fell through to
+ * the expense flow, making initial custom savings impossible to add from the
+ * Savings page.
+ */
+function resolveEntryMode(
+  initialMode: AddMode
+): { flow: FlowMode; incomeKind: IncomeKind } {
+  switch (initialMode) {
+    case "transfer":
+      return { flow: "transfer", incomeKind: "salary" };
+    case "income":
+    case "savings":
+      return {
+        flow: "income",
+        incomeKind: initialMode === "savings" ? "savings" : "salary",
+      };
+    default:
+      return { flow: "expense", incomeKind: "salary" };
+  }
+}
 
 export default function QuickAddSheet({
   open,
@@ -63,9 +90,7 @@ export default function QuickAddSheet({
           children: CATEGORY_PRESETS[name],
         }));
 
-  const [flow, setFlow] = useState<FlowMode>(
-    initialMode === "transfer" ? "transfer" : initialMode === "income" ? "income" : "expense"
-  );
+  const [flow, setFlow] = useState<FlowMode>(resolveEntryMode(initialMode).flow);
   const [category, setCategory] = useState("Food");
   const [subcategory, setSubcategory] = useState(
     categoryOptions.find((o) => o.name === "Food")?.children[0] ?? CATEGORY_PRESETS.Food[0] ?? "Restaurants"
@@ -73,7 +98,7 @@ export default function QuickAddSheet({
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [isCreditCard, setIsCreditCard] = useState(initialMode === "credit");
-  const [incomeKind, setIncomeKind] = useState<"salary" | "savings" | "loan">("salary");
+  const [incomeKind, setIncomeKind] = useState<IncomeKind>(resolveEntryMode(initialMode).incomeKind);
   const [recentMerchants, setRecentMerchants] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -87,9 +112,9 @@ export default function QuickAddSheet({
       setNote("");
       setError("");
       setIsCreditCard(initialMode === "credit");
-      setFlow(
-        initialMode === "transfer" ? "transfer" : initialMode === "income" ? "income" : "expense"
-      );
+      const entry = resolveEntryMode(initialMode);
+      setFlow(entry.flow);
+      setIncomeKind(entry.incomeKind);
       getRecentMerchants(userId)
         .then(setRecentMerchants)
         .catch(() => setRecentMerchants([]));

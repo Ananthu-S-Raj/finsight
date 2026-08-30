@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import AppShell from "@/components/AppShell";
 import GlassCard from "@/components/ui/GlassCard";
@@ -213,9 +214,9 @@ export default function DashboardPage() {
                 <Icon name="budgets" size={16} className="text-accent" />
                 This month&apos;s budget
               </h2>
-              <a href="/budgets" className="text-sm text-slate hover:text-snow flex items-center gap-1">
+              <Link href="/budgets" className="text-sm text-slate hover:text-snow flex items-center gap-1">
                 Details <Icon name="chevronRight" size={14} />
-              </a>
+              </Link>
             </div>
             <GlassCard className="p-5 flex items-center gap-6" hover>
               <div className="shrink-0">
@@ -271,9 +272,9 @@ export default function DashboardPage() {
                 <Icon name="transactions" size={16} className="text-accent" />
                 Recent activity
               </h2>
-              <a href="/transactions" className="text-sm text-slate hover:text-snow flex items-center gap-1">
+              <Link href="/transactions" className="text-sm text-slate hover:text-snow flex items-center gap-1">
                 View all <Icon name="chevronRight" size={14} />
-              </a>
+              </Link>
             </div>
             {txns.length === 0 ? (
               <GlassCard className="p-10 flex flex-col items-center text-center gap-3">

@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 
 /**
  * Behavioral model of the `apply_expense(5-arg)` RPC re-defined in
- * supabase/migrations/20260830000000_apply_expense_credit_card.sql.
+ * supabase/migrations/20260830000000_apply_expense_credit_card.sql and
+ * further refined in 20260831000000_normal_expense_zero_salary.sql.
  *
  * Reading and pinning the migration's decision logic in a faithful model makes
  * the user-visible requirements (salary independence for cards, preserved
@@ -32,7 +33,13 @@ function applyExpense(
 
   let { salary_balance: salary } = profile;
   const spent = monthSpentExcludingThis;
-  const overspend = Math.max(0, spent + amount - Math.max(profile.monthly_budget, spent));
+  // Mirrors the latest migration (20260831000000): a configured budget
+  // (<= 0 means unset) has no cap to exceed, so nothing must come from
+  // salary and the expense is allowed regardless of salary balance.
+  const overspend =
+    profile.monthly_budget <= 0
+      ? 0
+      : Math.max(0, spent + amount - Math.max(profile.monthly_budget, spent));
   const credit = Boolean(isCreditCard);
 
   if (!credit && overspend > 0) {
@@ -112,5 +119,41 @@ describe("normal expense still respects the existing salary check exactly", () =
     expect(r.ok).toBe(true);
     expect(r.type).toBe("expense");
     expect(r.finalSalary).toBe(0);
+  });
+});
+
+describe("Bug 1 — normal expense with a zero salary balance", () => {
+  it("allows a normal expense when NO budget is set (budget defaults to 0) and salary is 0", () => {
+    // A fresh profile: monthly_budget=0 (unset), salary_balance=0. There is no
+    // cap to exceed, so nothing must come from salary.
+    const r = applyExpense({ salary_balance: 0, monthly_budget: 0 }, 0, 1000, false);
+    expect(r.ok).toBe(true);
+    expect(r.type).toBe("expense");
+    expect(r.storedOverspend).toBe(0);
+    expect(r.returnedOverspend).toBe(0);
+    expect(r.finalSalary).toBe(0);
+  });
+
+  it("still rejects a normal expense past a real budget when salary cannot cover the overspend", () => {
+    // Budget IS set and the user is genuinely over it; salary cannot cover.
+    const r = applyExpense({ salary_balance: 0, monthly_budget: 1000 }, 1000, 500, false);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe("insufficient_balance");
+  });
+
+  it("deducts only the real over-budget overspend once a budget is set", () => {
+    const r = applyExpense({ salary_balance: 2000, monthly_budget: 1000 }, 1000, 500, false);
+    expect(r.ok).toBe(true);
+    expect(r.type).toBe("expense");
+    expect(r.storedOverspend).toBe(500);
+    expect(r.finalSalary).toBe(1500);
+  });
+
+  it("keeps credit-card charges salary-independent even with no budget configured", () => {
+    const r = applyExpense({ salary_balance: 0, monthly_budget: 0 }, 0, 5000, true);
+    expect(r.ok).toBe(true);
+    expect(r.type).toBe("credit_card");
+    expect(r.finalSalary).toBe(0);
+    expect(r.storedOverspend).toBe(0);
   });
 });
