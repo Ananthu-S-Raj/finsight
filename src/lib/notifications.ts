@@ -86,16 +86,19 @@ export function mapPushPayload(p: PushPayload): Omit<NotificationItem, "id" | "r
   };
 }
 
-/** Seeds client-side notifications from real data (overspend events etc). */
-export function useNotifications(transactions?: {
-  id: string;
-  type: string;
-  amount: number;
-  overspend_amount: number;
-  category: string | null;
-  note: string | null;
-  created_at: string;
-}[]) {
+/** Seeds client-side notifications from real data (over-budget events etc). */
+export function useNotifications(
+  transactions?: {
+    id: string;
+    type: string;
+    amount: number;
+    overspend_amount: number;
+    category: string | null;
+    note: string | null;
+    created_at: string;
+  }[],
+  monthlyBudget?: number
+) {
   const [items, setItems] = useState<NotificationItem[]>([]);
 
   // Seed derived notifications once when transactions arrive.
@@ -105,23 +108,31 @@ export function useNotifications(transactions?: {
       if (localStorage.getItem(SEED_KEY)) return;
       const derived: NotificationItem[] = [];
 
-      const overspends = transactions.filter(
-        (t) => Number(t.overspend_amount) > 0
-      );
-      if (overspends.length > 0) {
-        const t = overspends[0];
-        derived.push({
-          id: `overspend-${t.id}`,
-          category: "budget",
-          icon: "alert",
-          title: "Over budget",
-          message: `You went ₹${Math.round(
-            Number(t.overspend_amount)
-          )} over budget — it was covered from your salary balance.`,
-          at: new Date(t.created_at).getTime(),
-          read: false,
-          route: "/budgets",
-        });
+      // Over-budget is derived from this month's actual spend vs the budget —
+      // the per-transaction overspend_amount column no longer tracks monthly
+      // budget health (it now stores the salary consumed by a transaction).
+      const budget = Number(monthlyBudget ?? 0);
+      if (budget > 0) {
+        const monthStart = new Date();
+        monthStart.setDate(1);
+        monthStart.setHours(0, 0, 0, 0);
+        const monthSpent = transactions.reduce((sum, t) => {
+          if (t.type !== "expense" && t.type !== "credit_card") return sum;
+          if (new Date(t.created_at).getTime() < monthStart.getTime()) return sum;
+          return sum + Number(t.amount);
+        }, 0);
+        if (monthSpent > budget) {
+          derived.push({
+            id: `overspend-${monthStart.getTime()}`,
+            category: "budget",
+            icon: "alert",
+            title: "Over budget",
+            message: `You're ${inr(monthSpent - budget)} over budget this month.`,
+            at: Date.now(),
+            read: false,
+            route: "/budgets",
+          });
+        }
       }
 
       if (derived.length > 0) {
@@ -132,7 +143,7 @@ export function useNotifications(transactions?: {
     } catch {
       // non-fatal
     }
-  }, [transactions]);
+  }, [transactions, monthlyBudget]);
 
   useEffect(() => {
     setItems(readStore());

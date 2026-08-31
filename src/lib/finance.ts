@@ -135,10 +135,11 @@ export async function moveToSavings(userId: string, amount: number) {
 
 /**
  * Records a spend (cash/UPI expense or credit card charge) against a category
- * preset. The overspill-over-budget amount is deducted from the salary balance
- * server-side and reported so the UI can raise an overspending alert. If the
- * salary balance cannot cover the overspend the RPC rejects it (no negative
- * balances are ever produced).
+ * preset. A cash expense deducts its FULL amount from the salary balance
+ * server-side (the balance may go negative — a fresh user with no salary can
+ * still log expenses); a credit-card charge never touches the salary balance.
+ * The RPC returns the over-budget excess so the UI can raise an overspending
+ * alert; with no budget configured that is always zero.
  */
 export async function recordSpend(
   userId: string,

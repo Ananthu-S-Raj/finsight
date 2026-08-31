@@ -187,14 +187,14 @@ describe("TransactionRow rendering", () => {
     expect(screen.getByText("-₹1,200")).toBeInTheDocument();
   });
 
-  it("flags overspent rows", () => {
+  it("marks cash expense rows that were deducted from the available balance", () => {
     render(<TransactionRow tx={tx({ overspend_amount: 500 })} />);
-    expect(screen.getByText(/overspent/i)).toBeInTheDocument();
+    expect(screen.getByText(/salary/i)).toBeInTheDocument();
   });
 
-  it("does not flag rows without overspend", () => {
+  it("does not flag rows without a salary deduction", () => {
     render(<TransactionRow tx={tx()} />);
-    expect(screen.queryByText(/overspent/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/salary/i)).not.toBeInTheDocument();
   });
 
   it("opens the detail view when the row is clicked", async () => {

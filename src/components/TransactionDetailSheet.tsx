@@ -222,7 +222,7 @@ export default function TransactionDetailSheet({ tx, onClose, userId }: Props) {
               ...(tx.subcategory ? [["Merchant", tx.subcategory] as const] : []),
               ...(tx.note ? [["Note", tx.note] as const] : []),
               ...(Number(tx.overspend_amount) > 0
-                ? [[`Overspent (deducted from salary)`, inr(Number(tx.overspend_amount))] as const]
+                ? [[`Deducted from available balance`, inr(Number(tx.overspend_amount))] as const]
                 : []),
             ].map(([k, v]) => (
               <div key={k} className="flex items-center justify-between gap-4 rounded-xl neo-inset px-4 py-3">

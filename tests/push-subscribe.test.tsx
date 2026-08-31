@@ -44,7 +44,13 @@ function stubBrowser(opts: {
   subscribeThrows?: boolean;
   permission?: "granted" | "denied" | "default";
 }) {
-  const subscription = opts.subscription ? { ...opts.subscription, toJSON: () => opts.subscription } : null;
+  const subscription = opts.subscription
+    ? {
+        ...opts.subscription,
+        toJSON: () => opts.subscription,
+        unsubscribe: vi.fn(async () => true),
+      }
+    : null;
   const pushManager = {
     getSubscription: vi.fn(async () => subscription),
     subscribe: vi.fn(async () => {
@@ -149,6 +155,64 @@ describe("subscribeForPush — VAPID + failure classification", () => {
     process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = "A".repeat(87); // valid 65-byte key
     const result = await subscribeForPush("u1");
     expect(result).toEqual({ ok: false, reason: "error" });
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it("drops a stale browser subscription before subscribing fresh (self-heal of InvalidStateError)", async () => {
+    // A browser holds a subscription under a different VAPID key whose server
+    // row is gone. subscribe() would otherwise throw InvalidStateError forever;
+    // the flow must unsubscribe the stale one and persist the fresh one.
+    const staleUnsubscribe = vi.fn(async () => true);
+    const subscribe = vi.fn(async () => ({
+      endpoint: "https://push.example/fresh",
+      toJSON: () => ({ endpoint: "https://push.example/fresh" }),
+    }));
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      serviceWorker: {
+        ready: Promise.resolve({
+          pushManager: {
+            getSubscription: vi.fn(async () => ({
+              endpoint: "https://push.example/stale",
+              toJSON: () => ({ endpoint: "https://push.example/stale" }),
+              unsubscribe: staleUnsubscribe,
+            })),
+            subscribe,
+          },
+        }),
+      },
+    });
+    vi.stubGlobal("PushManager", class {});
+    vi.stubGlobal(
+      "Notification",
+      class {
+        static permission = "granted";
+        static requestPermission = vi.fn(async () => "granted");
+      }
+    );
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = "A".repeat(87);
+
+    const result = await subscribeForPush("u1");
+    expect(result).toEqual({ ok: true });
+    expect(staleUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    expect(subscribe.mock.calls[0][0].applicationServerKey).toBeInstanceOf(Uint8Array);
+    expect(insertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_id: "u1",
+        subscription: expect.objectContaining({ endpoint: "https://push.example/fresh" }),
+      })
+    );
+  });
+
+  it("treats an existing persisted subscription as success without re-subscribing", async () => {
+    // The not-stored browser sub from a previous key was already reconciled to
+    // a stored row (or a second call happened) — no duplicate subscribe/insert.
+    stubBrowser({ subscription: { endpoint: "https://push.example/a" } });
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = "A".repeat(87);
+    rows.push({ id: "r1", subscription: { endpoint: "https://push.example/a" } });
+    const result = await subscribeForPush("u1");
+    expect(result).toEqual({ ok: true });
     expect(insertMock).not.toHaveBeenCalled();
   });
 

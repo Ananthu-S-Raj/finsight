@@ -119,7 +119,7 @@ export default memo(function TransactionRow({
         </span>
         {Number(tx.overspend_amount) > 0 && (
           <span className="text-[13px] font-semibold uppercase tracking-wide text-warn">
-            overspent
+            salary
           </span>
         )}
       </span>

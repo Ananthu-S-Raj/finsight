@@ -21,7 +21,8 @@ export default function NotificationsPage() {
       category: string | null;
       note: string | null;
       created_at: string;
-    }[]
+    }[],
+    profile?.monthly_budget
   );
 
   useEffect(() => {

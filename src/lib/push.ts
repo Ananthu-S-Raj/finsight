@@ -136,6 +136,27 @@ export async function subscribeForPush(
       navigator.serviceWorker.ready,
       SW_READY_TIMEOUT_MS
     );
+
+    // Reconcile any existing browser subscription BEFORE subscribing. A stored
+    // subscription is a success. A stale one (server row cleaned up, or created
+    // under a DIFFERENT applicationServerKey / VAPID key) makes subscribe()
+    // throw InvalidStateError every time — the exact cause of the generic
+    // "couldn't enable notifications" failure. Drop it first so the current
+    // VAPID key can register a fresh, persisting subscription.
+    const existingSub = await registration.pushManager.getSubscription();
+    if (existingSub) {
+      const currentlyStored = await getStoredSubscriptions(userId).catch(() => []);
+      const alreadyStored = currentlyStored.some(
+        (row) => (row.subscription as { endpoint?: string } | null)?.endpoint === existingSub.endpoint
+      );
+      if (alreadyStored) {
+        return { ok: true };
+      }
+      if (typeof existingSub.unsubscribe === "function") {
+        await existingSub.unsubscribe().catch(() => {});
+      }
+    }
+
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(vapidKey),

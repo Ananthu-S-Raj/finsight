@@ -106,7 +106,11 @@ describe("admin schema — referential integrity and uniqueness", () => {
 });
 
 describe("financial atomicity — failed RPCs leave no partial writes", () => {
-  it("a rejected expense RPC throws and records no transaction row", async () => {
+  it("a rejected expense RPC throws (defensive mapping) and records no transaction row", async () => {
+    // apply_expense never rejects for insufficient_balance under the
+    // full-deduction model, but the RPC layer maps ANY server rejection
+    // faithfully — a rejected spend must error and write nothing, never be
+    // silently swallowed.
     const client = makeClient({
       tables: { transactions: [], profiles: [] },
       rpc: { apply_expense: () => ({ data: null, error: { message: "insufficient_balance" } }) },

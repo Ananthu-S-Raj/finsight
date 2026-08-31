@@ -251,11 +251,12 @@ describe("atomic financial RPC wiring (server computes balances)", () => {
     ).rejects.toThrow(/Amount must be greater than zero/);
   });
 
-  it("recordSpend surfaces the server's insufficient_balance guard for genuinely-over-budget cash expenses", async () => {
-    // The database applies the salary-balance check ONLY to the real overspend
-    // (amount past a configured budget). That guard still exists and must be
-    // reported clearly — this test locks the client mapping so a rejected
-    // expense can never be silently swallowed.
+  it("recordSpend keeps mapping insufficient_balance defensively (pay/savings RPCs still raise it)", async () => {
+    // apply_expense no longer raises insufficient_balance (a cash expense
+    // always deducts and may go negative), but the OTHER money RPCs —
+    // pay_credit_card and apply_savings_move — still do. The client mapping is
+    // shared, so a rejected spend can never be silently swallowed and this
+    // locks the friendly message.
     makeClient({
       rpc: {
         apply_expense: () => ({ data: null, error: { message: "insufficient_balance" } }),
@@ -690,30 +691,71 @@ describe("IDOR — every data access is scoped to the requesting user", () => {
     expect(mine.map((t) => t.id)).toEqual(["mine"]);
   });
 
-  it("duplicateTransaction inserts under the acting user and resets overspend", async () => {
-    const client = makeClient({ tables: { transactions: [] } });
-    await duplicateTransaction(USER_A_ID, makeCreditCardTx({ id: "orig", overspend_amount: 500 }));
-    const ins = client.writes.find((w) => w.table === "transactions" && w.kind === "insert");
-    expect(ins!.payload).toMatchObject({
-      user_id: USER_A_ID,
-      type: "credit_card",
-      amount: 1500,
-      overspend_amount: 0,
+  it("duplicateTransaction routes a credit-card charge through apply_expense (no direct insert)", async () => {
+    const rpcCalls: unknown[] = [];
+    const client = makeClient({
+      tables: { transactions: [] },
+      rpc: {
+        apply_expense: (a: unknown) => {
+          rpcCalls.push(a);
+          return { data: { overspend_amount: 0 }, error: null };
+        },
+      },
     });
+    await duplicateTransaction(USER_A_ID, makeCreditCardTx({ id: "orig", overspend_amount: 500 }));
+    // Balance-aware duplication: the card charge must go through the atomic
+    // RPC with the card flag, never a direct insert with overspend reset.
+    expect(rpcCalls).toEqual([
+      {
+        p_category: "Shopping",
+        p_subcategory: "Amazon",
+        p_amount: 1500,
+        p_note: "",
+        p_is_credit_card: true,
+      },
+    ]);
+    expect(client.writes.filter((w) => w.table === "transactions")).toHaveLength(0);
+    // Snapshot strings only — never a category_id.
+    expect(rpcCalls[0]).not.toHaveProperty("category_id");
   });
 
-  it("duplicateTransaction preserves category/subcategory snapshot strings — never category_id", async () => {
-    const client = makeClient({ tables: { transactions: [] } });
-    await duplicateTransaction(USER_A_ID, makeCreditCardTx({ id: "orig", overspend_amount: 500 }));
-    const ins = client.writes.find((w) => w.table === "transactions" && w.kind === "insert");
-    expect(ins!.payload).toMatchObject({
-      user_id: USER_A_ID,
-      type: "credit_card",
-      category: "Shopping",
-      subcategory: "Amazon",
-      amount: 1500,
-      overspend_amount: 0,
+  it("duplicateTransaction deducts a duplicated cash expense via apply_expense (full deduction path)", async () => {
+    const rpcCalls: unknown[] = [];
+    makeClient({
+      tables: { transactions: [] },
+      rpc: {
+        apply_expense: (a: unknown) => {
+          rpcCalls.push(a);
+          return { data: { overspend_amount: 0 }, error: null };
+        },
+      },
     });
-    expect(ins!.payload).not.toHaveProperty("category_id");
+    await duplicateTransaction(USER_A_ID, makeTransaction({ id: "orig", overspend_amount: 500 }));
+    expect(rpcCalls).toEqual([
+      {
+        p_category: "Food",
+        p_subcategory: "Restaurants",
+        p_amount: 500,
+        p_note: "",
+        p_is_credit_card: false,
+      },
+    ]);
+  });
+
+  it("duplicateTransaction re-credits duplicated salary via apply_income", async () => {
+    const rpcCalls: unknown[] = [];
+    makeClient({
+      tables: { transactions: [] },
+      rpc: {
+        apply_income: (a: unknown) => {
+          rpcCalls.push(a);
+          return { data: null, error: null };
+        },
+      },
+    });
+    await duplicateTransaction(USER_A_ID, makeSalaryTx({ id: "orig" }));
+    expect(rpcCalls).toEqual([
+      { p_kind: "salary", p_amount: 80000, p_note: "" },
+    ]);
   });
 });

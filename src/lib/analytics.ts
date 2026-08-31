@@ -1,5 +1,15 @@
 import { supabase } from "./supabaseClient";
-import { rpcErrorMessage, type Profile, type Transaction } from "./finance";
+import {
+  addLoan,
+  addSalary,
+  addSavingsDirect,
+  moveToSavings,
+  payCreditCard,
+  recordSpend,
+  rpcErrorMessage,
+  type Profile,
+  type Transaction,
+} from "./finance";
 
 export type MonthBucket = {
   key: string;
@@ -138,14 +148,37 @@ export async function deleteTransaction(_userId: string, id: string) {
 }
 
 export async function duplicateTransaction(userId: string, tx: Transaction) {
-  const { error } = await supabase.from("transactions").insert({
-    user_id: userId,
-    type: tx.type,
-    category: tx.category,
-    subcategory: tx.subcategory,
-    amount: tx.amount,
-    overspend_amount: 0,
-    note: tx.note,
-  });
-  if (error) throw error;
+  // Duplicating must reproduce the ORIGINAL entry's balance effect through the
+  // same atomic RPCs the create path uses — a direct insert with
+  // overspend_amount = 0 would silently skip the salary deduction for cash
+  // expenses and break the create/delete contract.
+  switch (tx.type) {
+    case "expense":
+    case "credit_card":
+      await recordSpend(userId, {
+        category: tx.category ?? "Other",
+        subcategory: tx.subcategory ?? "Other expense",
+        amount: tx.amount,
+        note: tx.note ?? "",
+        isCreditCard: tx.type === "credit_card",
+      });
+      return;
+    case "salary_add":
+      await addSalary(userId, tx.amount, tx.note ?? "");
+      return;
+    case "savings_add":
+      await addSavingsDirect(userId, tx.amount, tx.note ?? "");
+      return;
+    case "loan_add":
+      await addLoan(userId, tx.amount, tx.note ?? "");
+      return;
+    case "savings_move":
+      await moveToSavings(userId, tx.amount);
+      return;
+    case "credit_card_payment":
+      await payCreditCard(tx.amount, tx.note === "savings" ? "savings" : "salary");
+      return;
+    default:
+      throw new Error("unknown_transaction_type");
+  }
 }
