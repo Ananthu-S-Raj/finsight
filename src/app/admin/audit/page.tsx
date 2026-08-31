@@ -68,6 +68,10 @@ const ACTION_GROUPS: Array<{ label: string; options: Array<[string, string]> }> 
     ],
   },
   {
+    label: "Bug reports",
+    options: [["bug_report.update", "Bug report updates"]],
+  },
+  {
     label: "Notifications",
     options: [
       ["notification.create", "Notification create"],

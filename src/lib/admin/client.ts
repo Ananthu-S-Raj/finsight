@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import type { BugReport } from "@/lib/bugReports";
 
 export type Whoami = {
   id: string;
@@ -223,4 +224,8 @@ export type PushSubscriptionRow = {
   endpoint: string | null;
   prefs: Record<string, unknown>;
   created_at: string;
+};
+
+export type AdminBugReport = BugReport & {
+  user: { id: string; email: string | null; full_name: string | null } | null;
 };

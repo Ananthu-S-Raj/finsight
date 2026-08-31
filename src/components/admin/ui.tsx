@@ -18,6 +18,10 @@ const STATUS_COLORS: Record<string, string> = {
   success: "#10b981",
   denied: "#ef4444",
   error: "#ef4444",
+  open: "#6366f1",
+  in_progress: "#f59e0b",
+  resolved: "#10b981",
+  closed: "#94a3b8",
 };
 
 export function StatusBadge({ value }: { value: string }) {

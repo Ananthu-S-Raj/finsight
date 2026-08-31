@@ -625,6 +625,30 @@ export default function SettingsPage() {
             </div>
           </GlassCard>
 
+          {/* Help & Support */}
+          <GlassCard hover>
+            <div className="px-5 pt-4 pb-1 flex items-center gap-2">
+              <Icon name="alert" size={15} className="text-accent" />
+              <h2 className="text-[13px] font-bold uppercase tracking-widest text-slate">Help &amp; Support</h2>
+            </div>
+            <div className="border-t border-line">
+              <SettingRow
+                icon="alert"
+                color="#6366f1"
+                title="Report a Bug"
+                hint="Found something wrong? Tell us what happened."
+              >
+                <button
+                  onClick={() => router.push("/settings/report-a-bug")}
+                  className="neo h-10 w-10 rounded-xl inline-flex items-center justify-center text-slate hover:text-snow shrink-0"
+                  aria-label="Report a bug"
+                >
+                  <Icon name="chevronRight" size={18} />
+                </button>
+              </SettingRow>
+            </div>
+          </GlassCard>
+
           {/* Account */}
           <GlassCard hover>
             <div className="px-5 pt-4 pb-1 flex items-center gap-2">

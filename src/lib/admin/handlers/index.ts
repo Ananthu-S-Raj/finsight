@@ -31,6 +31,7 @@ import {
 } from "./notifications";
 import { deletePushSubscription, listPushSubscriptions } from "./push";
 import { listAuditLogs } from "./audit";
+import { listBugReports, updateBugReport } from "./bugReports";
 import { getSettings, updateSettings } from "./settings";
 import { getSystemStatus, setMaintenanceMode } from "./system";
 import { getAiStatus } from "./ai";
@@ -71,6 +72,8 @@ export const adminRoutes: AdminRoute[] = [
   { method: "GET", segments: ["push-subscriptions"], handler: listPushSubscriptions },
   { method: "DELETE", segments: ["push-subscriptions", ":id"], handler: deletePushSubscription },
   { method: "GET", segments: ["audit-logs"], handler: listAuditLogs },
+  { method: "GET", segments: ["bug-reports"], handler: listBugReports },
+  { method: "PATCH", segments: ["bug-reports", ":id"], handler: updateBugReport },
   { method: "GET", segments: ["settings"], handler: getSettings },
   { method: "PATCH", segments: ["settings", ":group"], handler: updateSettings },
   { method: "GET", segments: ["system"], handler: getSystemStatus },

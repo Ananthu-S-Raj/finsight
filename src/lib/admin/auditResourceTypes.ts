@@ -7,6 +7,7 @@
  */
 export const AUDIT_RESOURCE_TYPES = [
   "app_settings",
+  "bug_report",
   "category",
   "notification",
   "push_subscription",

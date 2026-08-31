@@ -26,6 +26,7 @@ const ADMIN_NAV: AdminNavItem[] = [
   { href: "/admin/categories", label: "Categories", icon: "tag", permission: "CATEGORY_MANAGE" },
   { href: "/admin/notifications", label: "Notifications", icon: "bell", permission: "NOTIFICATION_MANAGE" },
   { href: "/admin/push", label: "Push Devices", icon: "phone", permission: "USER_VIEW" },
+  { href: "/admin/bug-reports", label: "Bug Reports", icon: "alert", permission: "BUG_REPORT_MANAGE" },
   { href: "/admin/audit", label: "Audit Log", icon: "lock", permission: "AUDIT_LOG_VIEW" },
   { href: "/admin/settings", label: "Settings", icon: "settings", permission: "SYSTEM_SETTINGS" },
   { href: "/admin/system", label: "System", icon: "globe", permission: "SYSTEM_SETTINGS" },

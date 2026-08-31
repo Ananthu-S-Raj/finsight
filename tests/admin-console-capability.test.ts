@@ -103,9 +103,9 @@ describe("WS-C1: existing catalogue preserved", () => {
     for (const code of LEGACY) expect(PERMISSIONS[code as keyof typeof PERMISSIONS]).toBe(code);
   });
 
-  it("catalogue grows to exactly 15 codes (14 legacy + ADMIN_CONSOLE_ACCESS)", () => {
-    expect(ALL_PERMISSIONS.length).toBe(15);
-    expect(new Set(ALL_PERMISSIONS).size).toBe(15);
+  it("catalogue grows to exactly 16 codes (14 legacy + ADMIN_CONSOLE_ACCESS + BUG_REPORT_MANAGE)", () => {
+    expect(ALL_PERMISSIONS.length).toBe(16);
+    expect(new Set(ALL_PERMISSIONS).size).toBe(16);
   });
 
   it("adds only rows: no permission or relationship is modified or removed", () => {

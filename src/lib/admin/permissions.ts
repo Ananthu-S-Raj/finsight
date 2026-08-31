@@ -15,6 +15,7 @@ export const PERMISSIONS = {
   PWA_SETTINGS: "PWA_SETTINGS",
   AUDIT_LOG_VIEW: "AUDIT_LOG_VIEW",
   REPORT_VIEW: "REPORT_VIEW",
+  BUG_REPORT_MANAGE: "BUG_REPORT_MANAGE",
   ADMIN_CONSOLE_ACCESS: "ADMIN_CONSOLE_ACCESS",
 } as const;
 
@@ -37,5 +38,6 @@ export const PERMISSION_LABELS: Record<PermissionCode, string> = {
   PWA_SETTINGS: "PWA settings",
   AUDIT_LOG_VIEW: "View audit logs",
   REPORT_VIEW: "View reports",
+  BUG_REPORT_MANAGE: "View and manage bug reports",
   ADMIN_CONSOLE_ACCESS: "Admin console access",
 };
