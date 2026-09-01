@@ -1,7 +1,7 @@
 // Cache id — stamped with a per-deploy version by scripts/stamp-sw.mjs during
 // `npm run build`. The bytes of this file must change on every release or the
 // browser will never install the new worker and the auto-update flow stops.
-const CACHE = "finsight-v4-1769a49";
+const CACHE = "finsight-v4-87466d6";
 const CORE_URLS = ["/dashboard", "/login", "/register", "/manifest.json", "/favicon.svg", "/icons/icon-192.png", "/icons/icon-512.png"];
 const NAVIGATIONS = ["/", "/dashboard", "/login", "/register", "/verify", "/transactions", "/analytics", "/budgets", "/savings", "/cards", "/lend", "/insights", "/notifications", "/profile", "/settings", "/admin"];
 

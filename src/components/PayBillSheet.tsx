@@ -7,6 +7,7 @@ import Icon from "./ui/Icons";
 import { haptic } from "@/lib/haptics";
 import { useToast } from "./ui/ToastProvider";
 import { payCreditCard } from "@/lib/finance";
+import { payCardBill } from "@/lib/cards";
 import { emitRefresh } from "@/lib/events";
 import { inr } from "@/lib/format";
 
@@ -18,12 +19,18 @@ export default function PayBillSheet({
   outstanding,
   accountBalance,
   savingsBalance,
+  cardId,
+  cardName,
 }: {
   open: boolean;
   onClose: () => void;
   outstanding: number;
   accountBalance: number;
   savingsBalance: number;
+  /** Present => pay down a single card (pay_card_bill); absent => legacy
+      account-wide bill (pay_credit_card). */
+  cardId?: string | null;
+  cardName?: string | null;
 }) {
   const toast = useToast();
   const [amount, setAmount] = useState("");
@@ -60,13 +67,19 @@ export default function PayBillSheet({
       return;
     }
     setSaving(true);
-    payCreditCard(value, source)
-      .then((res) => {
-        haptic("success");
-        toast.success(`Paid ${inr(value)} toward your card bill.`);
-        emitRefresh();
-        onClose();
-      })
+    const op = cardId
+      ? payCardBill(cardId, value, source)
+      : payCreditCard(value, source);
+    op.then((res) => {
+      haptic("success");
+      toast.success(
+        cardName
+          ? `Paid ${inr(value)} toward ${cardName}.`
+          : `Paid ${inr(value)} toward your card bill.`
+      );
+      emitRefresh();
+      onClose();
+    })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "FinSight couldn't process that payment right now.");
       })
@@ -78,7 +91,7 @@ export default function PayBillSheet({
       open={open}
       onClose={onClose}
       title="Pay card bill"
-      subtitle={`${inr(outstanding)} outstanding`}
+      subtitle={cardName ? `${inr(outstanding)} outstanding · ${cardName}` : `${inr(outstanding)} outstanding`}
     >
       <div className="space-y-6">
         <div>

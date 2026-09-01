@@ -29,6 +29,8 @@ export type Transaction = {
   overspend_amount: number;
   note: string | null;
   created_at: string;
+  /** The credit card this row belongs to (null for legacy/uncategorised). */
+  card_id?: string | null;
 };
 
 export const CATEGORY_PRESETS: Record<string, string[]> = {
@@ -60,6 +62,20 @@ export function rpcErrorMessage(err: { message?: string; code?: string; details?
       return new Error("That payment source isn't supported.");
     case "payment_exceeds_outstanding":
       return new Error("That's more than your outstanding card bill.");
+    case "card_not_found":
+      return new Error("That credit card doesn't exist or you don't have access.");
+    case "card_has_transactions":
+      return new Error("This card can't be deleted because it has payment history.");
+    case "limit_below_outstanding":
+      return new Error("A card's limit can't go below its outstanding balance.");
+    case "credit_limit_exceeded":
+      return new Error("That charge would exceed this card's available credit.");
+    case "invalid_card_name":
+      return new Error("Enter a card name.");
+    case "invalid_credit_limit":
+      return new Error("Credit limit must be greater than zero.");
+    case "invalid_billing_day":
+      return new Error("Billing day must be between 1 and 31.");
     case "invalid_kind":
       return new Error("That income type isn't supported.");
     case "category_invalid":

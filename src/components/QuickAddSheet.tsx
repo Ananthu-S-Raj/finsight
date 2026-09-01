@@ -14,6 +14,11 @@ import {
   moveToSavings,
   recordSpend,
 } from "@/lib/finance";
+import {
+  applyCardExpense,
+  listCreditCards,
+  type CreditCardWithBalance,
+} from "@/lib/cards";
 import { getRecentMerchants } from "@/lib/analytics";
 import { useCategories } from "@/lib/useCategories";
 import { toCategoryOptions, type CategoryOption } from "@/lib/categories";
@@ -102,6 +107,11 @@ export default function QuickAddSheet({
   const [recentMerchants, setRecentMerchants] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // Multi-card support: when the user has cards, a credit charge is attached
+  // to one of them (apply_credit_card_expense). A user with no cards keeps the
+  // legacy account-wide behaviour (apply_expense with p_is_credit_card=true).
+  const [cards, setCards] = useState<CreditCardWithBalance[]>([]);
+  const [selectedCardId, setSelectedCardId] = useState("");
 
   const presets = categoryOptions.find((o) => o.name === category)?.children ?? [];
   const chips = recentMerchants.length > 0 ? [...recentMerchants, ...presets.filter((p) => !recentMerchants.includes(p))] : presets;
@@ -121,6 +131,25 @@ export default function QuickAddSheet({
     }
   }, [open, userId, initialMode]);
 
+  // Cards are only fetched when the credit-card toggle is on (the picker is
+  // invisible otherwise, so savings/income flows never pay for this round-trip).
+  useEffect(() => {
+    if (!open || !userId) return;
+    setSelectedCardId("");
+    if (!isCreditCard) return;
+    let active = true;
+    listCreditCards()
+      .then((data) => {
+        if (active) setCards(data);
+      })
+      .catch(() => {
+        if (active) setCards([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, userId, isCreditCard]);
+
   const selectCategory = useCallback(
     (c: CategoryOption) => {
       setCategory(c.name);
@@ -139,19 +168,43 @@ export default function QuickAddSheet({
     setError("");
     try {
       if (flow === "expense") {
-        const { overspendAmount } = await recordSpend(userId, {
-          category,
-          subcategory: subcategory || "Other",
-          amount: n,
-          note,
-          isCreditCard,
-        });
-        if (overspendAmount > 0) {
-          toast.warning(`You're ₹${Math.round(overspendAmount)} over budget this month.`);
-          playSound("budgetWarning");
+        if (isCreditCard && cards.length > 0) {
+          // Multi-card flow: the charge must be attached to a card.
+          if (!selectedCardId) {
+            setError("Select which card this charge is on.");
+            setLoading(false);
+            return;
+          }
+          const { overspendAmount } = await applyCardExpense(selectedCardId, {
+            category,
+            subcategory: subcategory || "Other",
+            amount: n,
+            note,
+          });
+          if (overspendAmount > 0) {
+            toast.warning(`You're ₹${Math.round(overspendAmount)} over budget this month.`);
+            playSound("budgetWarning");
+          } else {
+            toast.success("Card charge logged.");
+            playSound("success");
+          }
         } else {
-          toast.success(isCreditCard ? "Card charge logged." : "Expense added.");
-          playSound("success");
+          // Legacy path (no cards yet): account-wide credit charge via the
+          // original RPC, identical to how QuickAdd has always worked.
+          const { overspendAmount } = await recordSpend(userId, {
+            category,
+            subcategory: subcategory || "Other",
+            amount: n,
+            note,
+            isCreditCard,
+          });
+          if (overspendAmount > 0) {
+            toast.warning(`You're ₹${Math.round(overspendAmount)} over budget this month.`);
+            playSound("budgetWarning");
+          } else {
+            toast.success(isCreditCard ? "Card charge logged." : "Expense added.");
+            playSound("success");
+          }
         }
       } else if (flow === "income") {
         if (incomeKind === "salary") {
@@ -325,6 +378,36 @@ export default function QuickAddSheet({
                 aria-checked={isCreditCard}
               />
             </label>
+
+            {isCreditCard && (
+              <div>
+                <p className="text-[13px] uppercase tracking-widest text-slate mb-3 font-medium">
+                  Card
+                </p>
+                {cards.length === 0 ? (
+                  <p className="rounded-2xl neo-inset p-4 text-sm text-slate text-center">
+                    No credit cards yet. Add one from the Cards page to use it.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {cards.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedCardId(c.id);
+                          haptic("light");
+                        }}
+                        aria-pressed={selectedCardId === c.id}
+                        className={`neo-chip ${selectedCardId === c.id ? "!text-snow !border-accent/50 shadow-glow-accent" : ""}`}
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
 

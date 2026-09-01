@@ -180,9 +180,9 @@ grant execute on function public.submit_bug_report(
 --    The admin RLS policies above rely on this code, so seeding it and
 --    granting it to the admin role is part of the same migration.
 -- ------------------------------------------------------------
-insert into public.permissions (code, description)
+insert into public.permissions (name, code, description)
 values
-  ('BUG_REPORT_MANAGE', 'View and manage bug reports')
+  ('BUG_REPORT_MANAGE', 'BUG_REPORT_MANAGE', 'View and manage bug reports')
 on conflict (code) do nothing;
 
 insert into public.role_permissions (role_id, permission_id)
