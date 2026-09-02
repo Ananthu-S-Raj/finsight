@@ -261,6 +261,42 @@ describe("cards page — add / edit / delete", () => {
       });
     });
     expect(await screen.findByText("Card added.")).toBeInTheDocument();
+    // The success path fires the app-wide refresh that useCreditCards listens
+    // to, so the new card appears in the list without a manual reload.
+    expect(mocks.emitRefresh).toHaveBeenCalled();
+  });
+
+  it("keeps the form open and shows the error when saving a new card fails", async () => {
+    mocks.createCreditCard.mockRejectedValueOnce(new Error("Card limit looks invalid."));
+    renderCards([]);
+    fireEvent.click(screen.getByRole("button", { name: /add credit card/i }));
+
+    fireEvent.change(screen.getByLabelText("Card name"), { target: { value: "Axis Flipkart" } });
+    fireEvent.change(screen.getByLabelText("Credit limit"), { target: { value: "25000" } });
+    fireEvent.change(screen.getByLabelText("Billing day"), { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: /^add card$/i }));
+
+    // The RPC rejection must not close the sheet or swallow the error.
+    expect(await screen.findByText("Card limit looks invalid.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Card name")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^add card$/i })).toBeInTheDocument();
+    expect(mocks.createCreditCard).toHaveBeenCalledTimes(1);
+  });
+
+  it("exposes the Add credit card action on a narrow mobile viewport with zero cards", () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 375 });
+    try {
+      renderCards([]);
+      // The add action must never be gated behind card count or viewport: a
+      // brand-new mobile user with no cards still gets an obvious entry point.
+      const add = screen.getByRole("button", { name: /add credit card/i });
+      expect(add).toBeInTheDocument();
+      fireEvent.click(add);
+      expect(screen.getByRole("button", { name: /^add card$/i })).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
   });
 
   it("validates the add form inline", async () => {

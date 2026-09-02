@@ -160,9 +160,13 @@ describe("bug_reports migration (contract)", () => {
   });
 
   describe("BUG_REPORT_MANAGE permission", () => {
-    it("seeds the permission code", () => {
-      expect(sql).toContain("('BUG_REPORT_MANAGE', 'View and manage bug reports')");
-      expect(sql).toContain("on conflict (code) do nothing;");
+    it("seeds the permission code with the required name column", () => {
+      // permissions.name is NOT NULL in production, so the seed must supply it
+      // — the original two-column seed crashed production and was the reason
+      // this migration had to be corrected.
+      expect(sql).toMatch(
+        /insert into public\.permissions \(name, code, description\)[\s\S]*\('BUG_REPORT_MANAGE', 'BUG_REPORT_MANAGE', 'View and manage bug reports'\)[\s\S]*on conflict \(code\) do nothing;/
+      );
     });
 
     it("grants it to the admin role via the established cross-join", () => {

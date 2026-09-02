@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
+import { execSync } from "node:child_process";
 import path from "node:path";
 import vm from "node:vm";
 
@@ -158,6 +159,26 @@ describe("service worker update-detection stamp", () => {
     // scripts/stamp-sw.mjs, so a plain static literal is a regression.
     expect(CACHE).not.toBe("finsight-v4");
     expect(CACHE).toMatch(/^finsight-v4-(?:[0-9a-fA-F]{7,40}|\d{14})$/);
+  });
+
+  it("matches the current HEAD so a release can never ship a stale cache id", () => {
+    // The committed sw.js must carry the id of the commit it ships with. Committing
+    // a previous release's id (as `87466d6` was committed inside the credit-card
+    // feature commit) makes that release's sw.js bytes identical to the older one:
+    // browsers never install the replacement worker, controllerchange never fires,
+    // UpdatePrompt never reloads, and installed users keep running the old bundle —
+    // the exact regression where the Cards page lost its "Add Credit Card" action.
+    let head = "";
+    try {
+      head = execSync("git rev-parse --short HEAD", {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    } catch {
+      return; // not a git checkout — the format assertion above still applies
+    }
+    if (!head) return;
+    expect(CACHE).toBe(`finsight-v4-${head}`);
   });
 });
 
