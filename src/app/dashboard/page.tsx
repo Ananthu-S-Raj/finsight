@@ -15,6 +15,7 @@ import { useBalanceHidden, EyeToggle, PrivateValue } from "@/components/ui/Balan
 import { BudgetHint } from "@/components/SmartHints";
 import NotificationPermissionCard from "@/components/NotificationPermissionCard";
 import GoalsSection from "@/components/GoalsSection";
+import CreditCardsSection from "@/components/CreditCardsSection";
 import PageHeader from "@/components/PageHeader";
 import BirthdayGreeting from "@/components/BirthdayGreeting";
 import { usePageData } from "@/lib/usePageData";
@@ -269,6 +270,14 @@ export default function DashboardPage() {
 
           {/* Goals */}
           <GoalsSection userId={userId} />
+
+          {/* Credit Cards */}
+          {profile && (
+            <CreditCardsSection
+              accountBalance={profile.salary_balance}
+              savingsBalance={profile.savings_balance}
+            />
+          )}
 
           {/* Recent transactions */}
           <section>
