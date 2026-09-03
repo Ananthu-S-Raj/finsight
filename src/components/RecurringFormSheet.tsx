@@ -343,7 +343,7 @@ export default function RecurringFormSheet({
             <label className="flex items-center justify-between gap-4 py-1">
               <div>
                 <p className="text-sm font-medium text-snow">Pay by credit card</p>
-                <p className="text-[13px] text-slate">Charges appear under your card balance</p>
+                <p className="text-[13px] text-slate">Records the payment as a card charge</p>
               </div>
               <Toggle on={isCreditCard} onChange={setIsCreditCard} label="Pay by credit card" />
             </label>

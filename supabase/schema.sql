@@ -822,6 +822,26 @@ create trigger transactions_guard_protected_columns
   before update on public.transactions
   for each row execute function public.guard_transactions_protected_columns();
 
+-- Transactions: BEFORE INSERT guard rejects direct client inserts (all legitimate
+-- ledger writes go through SECURITY DEFINER RPCs, which run as the definer role
+-- and are unaffected). Closes the forge-then-refund minting vector.
+create or replace function public.guard_transactions_no_direct_insert()
+returns trigger
+language plpgsql
+as $$
+begin
+  if current_user not in ('postgres', 'supabase_admin', 'service_role') then
+    raise exception 'direct_transaction_insert_forbidden';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists transactions_guard_no_direct_insert on public.transactions;
+create trigger transactions_guard_no_direct_insert
+  before insert on public.transactions
+  for each row execute function public.guard_transactions_no_direct_insert();
+
 -- Check constraints (NOT VALID: legacy rows untouched, every new write enforced).
 do $$
 begin

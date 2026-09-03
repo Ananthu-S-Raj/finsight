@@ -758,4 +758,75 @@ describe("IDOR — every data access is scoped to the requesting user", () => {
       { p_kind: "salary", p_amount: 80000, p_note: "" },
     ]);
   });
+
+  it("duplicateTransaction routes a card-backed charge to the SAME card (apply_credit_card_expense)", async () => {
+    // Multi-card regression: duplicating a charge that lived on a specific card
+    // must land on that card's outstanding balance, never an orphan card_id=null
+    // charge created through the legacy apply_expense path.
+    const rpcCalls: unknown[] = [];
+    makeClient({
+      tables: { transactions: [] },
+      rpc: {
+        apply_credit_card_expense: (a: unknown) => {
+          rpcCalls.push(a);
+          return { data: { overspend_amount: 0, outstanding: 3000 }, error: null };
+        },
+      },
+    });
+    await duplicateTransaction(
+      USER_A_ID,
+      makeCreditCardTx({ id: "orig", card_id: "hdfc-1", overspend_amount: 0 })
+    );
+    expect(rpcCalls).toEqual([
+      {
+        p_card_id: "hdfc-1",
+        p_category: "Shopping",
+        p_subcategory: "Amazon",
+        p_amount: 1500,
+        p_note: "",
+      },
+    ]);
+    // No direct insert, and the legacy card-flag path must not be used.
+    expect(rpcCalls[0]).not.toHaveProperty("p_is_credit_card");
+  });
+
+  it("duplicateTransaction re-pays a card-backed payment to the SAME card (pay_card_bill)", async () => {
+    const rpcCalls: unknown[] = [];
+    makeClient({
+      tables: { transactions: [] },
+      rpc: {
+        pay_card_bill: (a: unknown) => {
+          rpcCalls.push(a);
+          return { data: { outstanding: 0 }, error: null };
+        },
+      },
+    });
+    await duplicateTransaction(
+      USER_A_ID,
+      makeTransaction({ id: "orig", type: "credit_card_payment", card_id: "sbi-1", amount: 5000 })
+    );
+    expect(rpcCalls).toEqual([
+      { p_card_id: "sbi-1", p_amount: 5000, p_source: "salary" },
+    ]);
+  });
+
+  it("duplicateTransaction falls back to the legacy pay path for a payment with no card_id", async () => {
+    const rpcCalls: unknown[] = [];
+    makeClient({
+      tables: { transactions: [] },
+      rpc: {
+        pay_credit_card: (a: unknown) => {
+          rpcCalls.push(a);
+          return { data: { outstanding: 0 }, error: null };
+        },
+      },
+    });
+    await duplicateTransaction(
+      USER_A_ID,
+      makeTransaction({ id: "orig", type: "credit_card_payment", amount: 5000, note: "savings" })
+    );
+    expect(rpcCalls).toEqual([
+      { p_amount: 5000, p_source: "savings" },
+    ]);
+  });
 });

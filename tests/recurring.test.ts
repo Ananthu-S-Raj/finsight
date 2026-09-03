@@ -431,6 +431,17 @@ describe("recurring migration — database guarantees", () => {
     expect(recSql).toContain("grant execute on function public.confirm_recurring_occurrence(uuid) to authenticated, service_role");
   });
 
+  it("confirm_recurring_occurrence is updated with FOR UPDATE for concurrency safety", () => {
+    const concurrencyMigration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20260916000001_confirm_recurring_concurrency.sql"),
+      "utf8"
+    );
+    expect(concurrencyMigration).toContain("for update");
+    expect(concurrencyMigration).toContain("drop function if exists public.confirm_recurring_occurrence(uuid)");
+    expect(concurrencyMigration).toContain("security definer set search_path = public");
+    expect(concurrencyMigration).toContain("grant execute on function public.confirm_recurring_occurrence(uuid) to authenticated, service_role");
+  });
+
   it("creates the edge-function entry point for the scheduler", () => {
     expect(() => {
       readFileSync(resolve(process.cwd(), "supabase/functions/process-recurring/index.ts"), "utf8");

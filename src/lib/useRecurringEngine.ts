@@ -39,13 +39,21 @@ export function useRecurringEngine(userId: string | null) {
         if (result.generated > 0 || result.pending > 0) {
           emitRefresh();
         }
-      } catch {
-        // Non-critical: balances simply refresh on next action.
+      } catch (err) {
+        // Non-critical: balances refresh on next action and the server-side
+        // Edge Function backstop will retry. Log for dev visibility but
+        // do not surface a disruptive toast to the user.
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[recurring-engine] processRecurringDue failed:", err);
+        }
       }
       try {
         await pushDueSoonReminders();
-      } catch {
-        // Non-critical: reminders are best-effort.
+      } catch (err) {
+        // Non-critical: reminders are best-effort. Log for dev visibility.
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[recurring-engine] pushDueSoonReminders failed:", err);
+        }
       }
     })();
   }, [userId]);

@@ -1,15 +1,29 @@
 // Cache id — stamped with a per-deploy version by scripts/stamp-sw.mjs during
 // `npm run build`. The bytes of this file must change on every release or the
 // browser will never install the new worker and the auto-update flow stops.
-const CACHE = "finsight-v4-7a29a35";
+const CACHE = "finsight-v4-faa1b8f";
 const CORE_URLS = ["/dashboard", "/login", "/register", "/manifest.json", "/favicon.svg", "/icons/icon-192.png", "/icons/icon-512.png"];
 const NAVIGATIONS = ["/", "/dashboard", "/login", "/register", "/verify", "/transactions", "/analytics", "/budgets", "/savings", "/cards", "/lend", "/insights", "/notifications", "/profile", "/settings", "/admin"];
 
 self.addEventListener("install", (event) => {
+  // Robust install: fully precache the core shell, but if any one core URL
+  // fails (e.g. a stale entry that 404s during an upgrade) do NOT abort the
+  // whole install — the cache is still usable and skipWaiting can proceed.
+  // A failing install means the old worker keeps serving and the auto-update
+  // flow never fires, leaving users stranded on the previous build. We absorb
+  // per-URL failures so a robust install always takes over.
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((cache) => cache.addAll(CORE_URLS))
+      .then((cache) =>
+        Promise.allSettled(
+          CORE_URLS.map((url) =>
+            cache.add(url).catch(() => {
+              // Best-effort: never let one optional shell asset block activation.
+            })
+          )
+        )
+      )
       .then(() => self.skipWaiting())
   );
 });
@@ -55,12 +69,28 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(event.request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(event.request, copy));
+          // Cache only successful responses — a 404/500 fallback page must not
+          // be stored and served as the app shell (cache poisoning).
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(event.request, copy));
+          }
           return res;
         })
         .catch(() =>
-          caches.match(event.request).then((cached) => cached || caches.match("/dashboard"))
+          caches.match(event.request).then((cached) => {
+            // Never resolve to undefined: if the exact route isn't cached fall
+            // back to the cached /dashboard shell, and if even that is missing
+            // return a minimal offline document so the promise always resolves.
+            if (cached) return cached;
+            return caches.match("/dashboard").then((shell) => {
+              if (shell) return shell;
+              return new Response(
+                "<!doctype html><html><body><h1>Offline</h1><p>You're offline. Reconnect to continue.</p></body></html>",
+                { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
+              );
+            });
+          })
         )
     );
     return;
@@ -74,8 +104,10 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(event.request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(event.request, copy));
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(event.request, copy));
+          }
           return res;
         })
         .catch(() => caches.match(event.request))
@@ -92,8 +124,12 @@ self.addEventListener("fetch", (event) => {
         (cached) =>
           cached ||
           fetch(event.request).then((res) => {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(event.request, copy));
+            // Cache only successful responses (never 4xx/5xx) to avoid serving
+            // poisoned error bodies from the offline cache.
+            if (res.ok) {
+              const copy = res.clone();
+              caches.open(CACHE).then((c) => c.put(event.request, copy));
+            }
             return res;
           })
       )

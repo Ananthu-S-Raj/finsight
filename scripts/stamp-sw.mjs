@@ -21,7 +21,9 @@
  * what gets copied into the deploy output).
  *
  * Usage:
- *   node scripts/stamp-sw.mjs
+ *   node scripts/stamp-sw.mjs          # stamp public/sw.js for the current HEAD
+ *   node scripts/stamp-sw.mjs --check  # verify public/sw.js matches the current
+ *                                      # deploy id (exits 1 with a message if not)
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
@@ -31,6 +33,7 @@ import { fileURLToPath } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const swPath = path.join(root, "public", "sw.js");
 const CACHE_RE = /const CACHE = "[^"]*";/;
+const check = process.argv.includes("--check");
 
 function deployId() {
   try {
@@ -61,6 +64,25 @@ if (!CACHE_RE.test(source)) {
 
 const id = deployId();
 const next = source.replace(CACHE_RE, `const CACHE = "finsight-v4-${id}";`);
+
+if (check) {
+  const currentId = CACHE_RE.exec(source)?.[0] ?? "";
+  const expectedId = `const CACHE = "finsight-v4-${id}";`;
+  if (!currentId || currentId !== expectedId) {
+    console.error(
+      `[stamp-sw] FAIL: public/sw.js cache id is stale for this release.\n` +
+        `  found:    ${currentId || "(none)"}\n` +
+        `  expected: ${expectedId}\n` +
+        `Run \`node scripts/stamp-sw.mjs\` (or \`npm run build\`, which stamps ` +
+        `before next build) and commit the stamped file. A stale service-worker ` +
+        `bytes means browsers never install the new worker and the auto-update ` +
+        `flow breaks.`
+    );
+    process.exit(1);
+  }
+  console.log(`[stamp-sw] ok: finsight-v4-${id}`);
+  process.exit(0);
+}
 
 if (next === source) {
   console.log(`[stamp-sw] already stamped: finsight-v4-${id}`);

@@ -10,6 +10,7 @@ import {
   type Profile,
   type Transaction,
 } from "./finance";
+import { applyCardExpense, payCardBill } from "./cards";
 
 export type MonthBucket = {
   key: string;
@@ -151,18 +152,42 @@ export async function duplicateTransaction(userId: string, tx: Transaction) {
   // Duplicating must reproduce the ORIGINAL entry's balance effect through the
   // same atomic RPCs the create path uses — a direct insert with
   // overspend_amount = 0 would silently skip the salary deduction for cash
-  // expenses and break the create/delete contract.
+  // expenses and break the create/delete contract. Card-backed rows must reuse
+  // the CARD-aware RPCs so the duplicate lands on the SAME card's outstanding
+  // balance (not an orphan card_id=null charge). Fall back to the legacy
+  // zero-card flows only when the original row had no card_id.
   switch (tx.type) {
-    case "expense":
-    case "credit_card":
+    case "expense": {
+      // Cash: never deduct from a card.
       await recordSpend(userId, {
         category: tx.category ?? "Other",
         subcategory: tx.subcategory ?? "Other expense",
         amount: tx.amount,
         note: tx.note ?? "",
-        isCreditCard: tx.type === "credit_card",
+        isCreditCard: false,
       });
       return;
+    }
+    case "credit_card": {
+      if (tx.card_id) {
+        await applyCardExpense(tx.card_id, {
+          category: tx.category ?? "Other",
+          subcategory: tx.subcategory ?? "Other expense",
+          amount: tx.amount,
+          note: tx.note ?? "",
+        });
+      } else {
+        // Legacy/zero-card model — no card to attribute the charge to.
+        await recordSpend(userId, {
+          category: tx.category ?? "Other",
+          subcategory: tx.subcategory ?? "Other expense",
+          amount: tx.amount,
+          note: tx.note ?? "",
+          isCreditCard: true,
+        });
+      }
+      return;
+    }
     case "salary_add":
       await addSalary(userId, tx.amount, tx.note ?? "");
       return;
@@ -175,9 +200,16 @@ export async function duplicateTransaction(userId: string, tx: Transaction) {
     case "savings_move":
       await moveToSavings(userId, tx.amount);
       return;
-    case "credit_card_payment":
-      await payCreditCard(tx.amount, tx.note === "savings" ? "savings" : "salary");
+    case "credit_card_payment": {
+      const source = tx.note === "savings" ? "savings" : "salary";
+      if (tx.card_id) {
+        await payCardBill(tx.card_id, tx.amount, source);
+      } else {
+        // Legacy/zero-card model — pay the (single) card.
+        await payCreditCard(tx.amount, source);
+      }
       return;
+    }
     default:
       throw new Error("unknown_transaction_type");
   }

@@ -72,7 +72,7 @@ const THEME_SCRIPT = `
 })();
 `;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -82,7 +82,7 @@ export default function RootLayout({
   // header and applies it to its own inline scripts/styles and page bundles.
   // Calling headers() also opts every route into dynamic rendering, which
   // nonce-based CSP requires.
-  const nonce = headers().get("x-nonce") ?? undefined;
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
     <html lang="en" className={`${inter.variable} scroll-smooth`}>

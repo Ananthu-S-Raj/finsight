@@ -33,6 +33,15 @@ jobs:
       - name: Coverage gate
         run: npm run test:coverage
 
+      - name: Dependency security check
+        run: npm audit --omit=dev
+
+      - name: Service-worker stamp consistency check
+        # A committed public/sw.js left stale (not stamped for the current HEAD)
+        # would ship a worker the browser refuses to install, silently breaking
+        # the auto-update flow. Enforce it here so a stale stamp fails CI.
+        run: node scripts/stamp-sw.mjs --check
+
       - name: Upload JUnit report
         if: always()
         uses: actions/upload-artifact@v4
@@ -65,8 +74,41 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Production build
+      # The build requires Supabase env vars. A deploy that accidentally used
+      # placeholder values would produce a broken bundle. The block below
+      # deliberately runs for PRs/develop with non-secret placeholders (so we
+      # verify the pipeline COMPILES), while the deploy job later injects the
+      # REAL values from GitHub secrets and refuses to run without them.
+      - name: Production build (CI placeholders)
         run: npm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+
+  # P2 H — deployment safety. This job DOES NOT deploy anything: it fails loudly
+  # unless the REAL production credentials are present as GitHub secrets, so a
+  # placeholder-credential build could never slip through to a release. Wire your
+  # actual deploy provider (Vercel/Netlify/Supabase) into this job and note that
+  # deployment must always consume these secrets — never the CI placeholders.
+  deploy-validate:
+    name: Validate production deploy credentials (no deploy)
+    runs-on: ubuntu-latest
+    # Only on the default branch; never on PR/develop.
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push')
+    steps:
+      - name: Require real production Supabase credentials
+        env:
+          PROD_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          PROD_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          # Refuse to proceed if the secret is missing or is still the CI
+          # placeholder — a real deploy must never use placeholder creds.
+          if [ -z "$PROD_SUPABASE_URL" ] || [ -z "$PROD_SUPABASE_ANON_KEY" ]; then
+            echo "::error::Deployment to the default branch requires GitHub secrets NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY. Configure them in the repository/org before enabling deploys."
+            exit 1
+          fi
+          if printf '%s' "$PROD_SUPABASE_URL" | grep -qi placeholder; then
+            echo "::error::NEXT_PUBLIC_SUPABASE_URL is still the placeholder value — refusing to proceed."
+            exit 1
+          fi
+          echo "Production Supabase credentials present and non-placeholder. OK."

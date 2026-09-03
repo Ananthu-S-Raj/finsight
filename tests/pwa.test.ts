@@ -29,6 +29,9 @@ function makeCaches(): { api: CacheApi; cache: ReturnType<typeof vi.fn> } {
       addAll: vi.fn(async (urls: string[]) => {
         for (const u of urls) store.set(u, new Response("<html/>", { status: 200 }));
       }),
+      add: vi.fn(async (url: string) => {
+        store.set(url, new Response("<html/>", { status: 200 }));
+      }),
       put: vi.fn(async (request: any, response: any) => {
         store.set(typeof request === "string" ? request : request.url, response);
       }),
@@ -108,9 +111,33 @@ describe("service worker install / activate", () => {
     await fire("install");
     expect(caches.api.open).toHaveBeenCalledWith(CACHE);
     const handle = await caches.api.open.mock.results[0].value;
-    expect(handle.addAll).toHaveBeenCalledWith(CORE_URLS);
+    // Robust install caches each core URL individually (allSettled), never
+    // using addAll which aborts the whole install if one URL fails.
+    expect(handle.add).toHaveBeenCalledTimes(CORE_URLS.length);
+    for (const url of CORE_URLS) {
+      expect(handle.add).toHaveBeenCalledWith(url);
+    }
     // The new worker must take over immediately — without skipWaiting the old
     // shell would keep serving until every tab closed.
+    expect(self.skipWaiting).toHaveBeenCalled();
+  });
+
+  it("does not abort install when one core URL fails (robust install)", async () => {
+    // A failing cache.add for a single core URL must not strand the user on the
+    // old worker: the promise must resolve and skipWaiting must be called.
+    const failing = vi.fn((url: string) => {
+      if (url.endsWith("/manifest.json")) return Promise.reject(new TypeError("offline"));
+      return Promise.resolve();
+    });
+    const { fire, self } = loadSW({
+      caches: {
+        open: vi.fn(async () => ({ add: failing, put: vi.fn(async () => {}), match: vi.fn(async () => undefined) })),
+        match: vi.fn(async () => undefined),
+        keys: vi.fn(async () => []),
+        delete: vi.fn(async () => true),
+      },
+    });
+    await expect(fire("install")).resolves.toBeUndefined();
     expect(self.skipWaiting).toHaveBeenCalled();
   });
 
@@ -161,13 +188,15 @@ describe("service worker update-detection stamp", () => {
     expect(CACHE).toMatch(/^finsight-v4-(?:[0-9a-fA-F]{7,40}|\d{14})$/);
   });
 
-  it("matches the current HEAD so a release can never ship a stale cache id", () => {
-    // The committed sw.js must carry the id of the commit it ships with. Committing
-    // a previous release's id (as `87466d6` was committed inside the credit-card
-    // feature commit) makes that release's sw.js bytes identical to the older one:
-    // browsers never install the replacement worker, controllerchange never fires,
-    // UpdatePrompt never reloads, and installed users keep running the old bundle —
-    // the exact regression where the Cards page lost its "Add Credit Card" action.
+  it("is consistent with the deterministic build-time stamp at the current commit", () => {
+    // The stamp/deploy contract: `npm run build` stamps public/sw.js with the
+    // git short-HEAD of the code being built (deterministic at a fixed commit),
+    // so every deployed sw.js differs from the previous deploy and browsers
+    // install the new worker. stamp-sw.mjs --check compares the committed file
+    // against that id and fails the deploy when stale — a defect that would
+    // otherwise ship a service worker browsers refuse to install. This test
+    // recomputes the exact id the build derives so a committed sw.js left stale
+    // after a commit is caught here rather than only in the deploy pipeline.
     let head = "";
     try {
       head = execSync("git rev-parse --short HEAD", {
@@ -175,10 +204,13 @@ describe("service worker update-detection stamp", () => {
         stdio: ["ignore", "pipe", "ignore"],
       }).trim();
     } catch {
-      return; // not a git checkout — the format assertion above still applies
+      head = ""; // not a git checkout — the format assertion above still applies
     }
-    if (!head) return;
-    expect(CACHE).toBe(`finsight-v4-${head}`);
+    if (head) {
+      // Matches the exact id stamp-sw.mjs derives (git short HEAD in a checkout;
+      // the committed file must be stamped for the current HEAD).
+      expect(CACHE).toBe(`finsight-v4-${head}`);
+    }
   });
 });
 
@@ -223,6 +255,22 @@ describe("service worker fetch strategy", () => {
     const res = await responded;
     expect(caches.api.match).toHaveBeenCalledWith("/dashboard");
     expect(res!.status).toBe(200);
+  });
+
+  it("never resolves navigation to undefined when offline with an empty cache", async () => {
+    // A completely cold cache (no route, no /dashboard shell) must still return
+    // a valid Response, never undefined.
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("offline"));
+    const { fire } = loadSW({ fetch: fetchMock, caches: { open: vi.fn(async () => ({ add: vi.fn(async () => {}), put: vi.fn(async () => {}), match: vi.fn(async () => undefined) })), match: vi.fn(async () => undefined), keys: vi.fn(async () => []), delete: vi.fn(async () => true), put: vi.fn(async () => {}), addAll: vi.fn(async () => {}) } });
+    let responded: Promise<Response> | undefined;
+    await fire("fetch", {
+      request: req("http://localhost:3000/dashboard", { mode: "navigate" }),
+      respondWith: (p: Promise<Response>) => (responded = p),
+    });
+    const res = await responded;
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(200);
+    expect(await res!.text()).toMatch(/Offline/i);
   });
 
   it("serves same-origin assets cache-first (except _next/ which is network-first)", async () => {
@@ -273,6 +321,21 @@ describe("service worker fetch strategy", () => {
       respondWith: () => (responded = true),
     });
     expect(responded).toBe(false);
+  });
+
+  it("never caches non-OK responses (avoids cache poisoning)", async () => {
+    // A 404/500 response must NOT be written to the cache, in any branch.
+    const fetchMock = vi.fn().mockResolvedValue(new Response("not found", { status: 404 }));
+    const { fire, caches } = loadSW({ fetch: fetchMock });
+    let responded: Promise<Response> | undefined;
+    await fire("fetch", {
+      request: req("http://localhost:3000/images/missing.svg"),
+      respondWith: (p: Promise<Response>) => (responded = p),
+    });
+    const res = await responded;
+    expect(res!.status).toBe(404);
+    // The cache must not contain the 404 body.
+    expect(caches.api.store.has("http://localhost:3000/images/missing.svg")).toBe(false);
   });
 });
 

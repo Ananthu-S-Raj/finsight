@@ -174,7 +174,9 @@ export default function BillsPage() {
     try {
       const result = await markBillPaid(paying.id, createExpense);
       const msg = result.overspend_amount > 0
-        ? `Paid — ₹${inr(result.overspend_amount)} over budget, covered from salary.`
+        ? paying.is_credit_card
+          ? `Paid — ₹${inr(result.overspend_amount)} over budget.`
+          : `Paid — ₹${inr(result.overspend_amount)} over budget, covered from salary.`
         : result.transaction_id
           ? "Paid and logged to your transactions."
           : "Bill marked as paid.";
@@ -403,7 +405,7 @@ function MarkPaidContent({
           </p>
           <p className="text-[13px] text-slate">
             {bill.is_credit_card
-              ? "Creates a credit-card transaction under your card balance"
+              ? "Records the payment as a credit-card transaction (not tied to a specific card)"
               : "Creates an expense entry in this month's spending"}
           </p>
         </div>

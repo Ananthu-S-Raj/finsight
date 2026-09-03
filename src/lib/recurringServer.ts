@@ -304,18 +304,30 @@ export async function dbConfirmOccurrence(
   client: SupabaseClient,
   occurrenceId: string
 ): Promise<{ transaction_id: string | null }> {
+  // Surfaces the underlying DB error so a specific failure (e.g. the occurrence
+  // was already paid) is never masked as a generic "db_error". Meaningful
+  // sentinel errors map to clear, actionable messages.
   assertId(occurrenceId);
   const { data, error } = await client.rpc("confirm_recurring_occurrence", {
     p_occurrence_id: occurrenceId,
   });
   if (error) {
-    if (error.message === "occurrence_not_found") {
-      throw new AuthApiError(404, "Pending occurrence not found.", "not_found");
+    switch (error.message) {
+      case "occurrence_not_found":
+        throw new AuthApiError(404, "Pending occurrence not found.", "not_found");
+      case "unauthorized":
+        throw new AuthApiError(403, "This occurrence belongs to another account.", "forbidden");
+      case "rule_not_found":
+        throw new AuthApiError(404, "The recurring transaction for this occurrence no longer exists.", "not_found");
+      case "duplicate_payment":
+        throw new AuthApiError(409, "This occurrence's payment was already recorded.", "conflict");
+      case "invalid_amount":
+        throw new AuthApiError(400, "The recurring amount is invalid.", "bad_request");
+      case "invalid_rule_type":
+        throw new AuthApiError(400, "This recurring rule type can't be confirmed.", "bad_request");
+      default:
+        throw new AuthApiError(500, "Couldn't confirm the occurrence.", "db_error");
     }
-    if (error.message === "unauthorized") {
-      throw new AuthApiError(403, "This occurrence belongs to another account.", "forbidden");
-    }
-    throw new AuthApiError(500, "Couldn't confirm the occurrence.", "db_error");
   }
   return (data ?? { transaction_id: null }) as { transaction_id: string | null };
 }

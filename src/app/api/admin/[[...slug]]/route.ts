@@ -5,10 +5,10 @@ export const dynamic = "force-dynamic";
 
 async function run(
   req: Request,
-  { params }: { params: { slug?: string | string[] } }
+  { params }: { params: Promise<{ slug?: string | string[] }> }
 ) {
-  const rawSlug = params.slug ?? [];
-  const slug = Array.isArray(rawSlug) ? rawSlug : [rawSlug];
+  const { slug: rawSlug } = await params;
+  const slug = (Array.isArray(rawSlug) ? rawSlug : [rawSlug]).filter((s): s is string => s != null);
 
   const auth = await authenticateRequest(req);
   if (!auth.ok) return json({ error: auth.error.message, code: auth.error.code, status: auth.error.status }, auth.error.status);
